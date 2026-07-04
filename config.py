@@ -9,7 +9,8 @@ load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+# maxPoolSize limits connection pool memory (important on Render free tier - 512MB)
+client = AsyncIOMotorClient(mongo_url, maxPoolSize=10)
 db = client[os.environ['DB_NAME']]
 
 # API Keys

@@ -3430,6 +3430,10 @@ async def scheduled_news_fetch():
         
         logger.info(f"✅ Scheduled news fetch completed. Added {news_added} new articles.")
         
+        # Free memory after heavy fetch (important on Render free tier - 512MB)
+        import gc
+        gc.collect()
+        
         # Send notifications based on config
         if NOTIFICATION_CONFIG.get("auto_notify_enabled", True):
             min_news = NOTIFICATION_CONFIG.get("min_news_for_notification", 3)
@@ -3821,9 +3825,10 @@ async def cleanup_duplicate_news():
             removed += result.deleted_count
         
         # 2. Near-duplicate by 6-word prefix (catches articles from different sources)
+        # Limit to 5000 most recent to keep memory usage low on Render free tier (512MB)
         all_news = await db.news.find(
             {}, {"_id": 1, "title": 1, "news_id": 1, "published_at": 1, "ai_summary": 1, "image_url": 1}
-        ).sort("published_at", -1).to_list(15000)
+        ).sort("published_at", -1).to_list(5000)
         
         from collections import defaultdict
         prefix_groups = defaultdict(list)
@@ -3854,6 +3859,11 @@ async def cleanup_duplicate_news():
             logger.info(f"🔄 Dedup: {removed} notícias duplicadas removidas")
         else:
             logger.info("🔄 Dedup: nenhuma duplicata encontrada")
+        
+        # Free memory (important on Render free tier - 512MB)
+        del all_news, prefix_groups
+        import gc
+        gc.collect()
     except Exception as e:
         logger.error(f"Erro no dedup: {str(e)}")
 
@@ -3955,8 +3965,32 @@ async def scheduled_quality_check():
     
     logger.info(f"✅ Quality check completed. Fixed {fixed_count} articles.")
 
+async def keep_alive_ping():
+    """Ping own /api/health endpoint to keep the Render free-tier instance awake.
+    This prevents the ~50s cold start that delays OTP emails."""
+    base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if not base_url:
+        return  # Not running on Render (e.g., local dev)
+    try:
+        async with httpx.AsyncClient() as http_client:
+            await http_client.get(f"{base_url}/api/health", timeout=30.0)
+        logger.debug("💓 Keep-alive ping OK")
+    except Exception as e:
+        logger.warning(f"Keep-alive ping failed: {str(e)}")
+
 def setup_scheduler():
     """Configure and start the scheduler with all jobs"""
+    
+    # Job 0: Keep-alive ping every 10 minutes (prevents Render free tier from sleeping)
+    scheduler.add_job(
+        keep_alive_ping,
+        IntervalTrigger(minutes=10),
+        id="keep_alive_10min",
+        name="Keep-Alive Ping Every 10 Minutes",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True
+    )
     
     # Job 1: Fetch news every 30 minutes
     scheduler.add_job(
@@ -3964,7 +3998,10 @@ def setup_scheduler():
         IntervalTrigger(minutes=30),
         id="news_fetch_30min",
         name="Fetch News Every 30 Minutes",
-        replace_existing=True
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300
     )
     
     # Job 2: Fetch news at specific hours (6am, 12pm, 6pm, 10pm Brazil time)
@@ -3975,7 +4012,10 @@ def setup_scheduler():
             CronTrigger(hour=hour, minute=0),
             id=f"news_fetch_cron_{hour}",
             name=f"Fetch News at {hour}:00 UTC",
-            replace_existing=True
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=300
         )
     
     # Job 3: Cleanup old news daily at 3am UTC (midnight Brazil)
@@ -4011,7 +4051,9 @@ def setup_scheduler():
         IntervalTrigger(hours=6),
         id="dedup_news_6h",
         name="Dedup News Every 6 Hours",
-        replace_existing=True
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True
     )
     
     # Job 7: Quality check every 12 hours (fix encoding, misclassification, missing images)
@@ -4020,7 +4062,9 @@ def setup_scheduler():
         IntervalTrigger(hours=12),
         id="quality_check_12h",
         name="Quality Check Every 12 Hours",
-        replace_existing=True
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True
     )
     
     logger.info("📅 Scheduler configured with jobs:")
