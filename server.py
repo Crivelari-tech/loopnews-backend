@@ -2207,7 +2207,7 @@ CATEGORY_KEYWORDS = {
         "arma", "armamento", "munição", "tiroteio", "bala perdida",
         "morte", "corpo encontrado", "cadáver", "vítima fatal",
         "feminicídio", "feminicidio", "latrocínio", "latrocinio",
-        "golpe", "estelionato", "fraude", "lavagem de dinheiro",
+        "estelionato", "lavagem de dinheiro",
         "milícia", "milicia", "pistoleiro", "execução",
         "investigação criminal", "inquérito", "indiciado", "indiciada",
         "presídio", "presidio", "penitenciária", "penitenciaria",
@@ -2331,6 +2331,22 @@ def smart_reclassify(title: str, summary: str, current_category: str, source_nam
             "jcp", "dividendo", "ibovespa", "selic",
             "vacina", "doença", "hospital",
             "julgamento", "tribunal", "condenado",
+        ],
+        "policial": [
+            "guerra", "israel", "palestina", "hamas", "hezbollah",
+            "ucrânia", "rússia", "otan", "gaza", "cessar-fogo",
+            "bombardeio", "míssil", "ataque aéreo", "exército", "tropas",
+            "futebol", "campeonato", "brasileirão", "jogador",
+            "filme", "cinema", "netflix", "série",
+            "bbb", "big brother", "paredão",
+            "impeachment", "senado", "câmara dos deputados",
+        ],
+        "saude": [
+            "lesão", "lesionado", "desfalque", "jogador", "atleta",
+            "futebol", "campeonato", "brasileirão",
+            "delegacia", "preso", "traficante", "homicídio",
+            "bitcoin", "cripto", "blockchain",
+            "filme", "cinema", "netflix",
         ],
     }
     
@@ -3867,6 +3883,38 @@ async def cleanup_duplicate_news():
     except Exception as e:
         logger.error(f"Erro no dedup: {str(e)}")
 
+async def reclassify_recent_news(limit: int = 2000) -> int:
+    """Run smart_reclassify over recent articles and fix wrong categories.
+    Processes in small batches to keep memory low (Render free tier)."""
+    fixed = 0
+    cursor = db.news.find(
+        {}, {"_id": 1, "title": 1, "summary": 1, "category": 1, "source_name": 1}
+    ).sort("published_at", -1).limit(limit)
+    
+    async for doc in cursor:
+        try:
+            new_cat = smart_reclassify(
+                doc.get("title", ""),
+                doc.get("summary", ""),
+                doc.get("category", "geral"),
+                doc.get("source_name", "")
+            )
+            if new_cat != doc.get("category"):
+                await db.news.update_one({"_id": doc["_id"]}, {"$set": {"category": new_cat}})
+                fixed += 1
+        except Exception:
+            continue
+    
+    if fixed > 0:
+        logger.info(f"🏷️ Reclassificação: {fixed} notícias movidas para a categoria correta")
+    return fixed
+
+@api_router.post("/admin/reclassify-all")
+async def trigger_reclassify_all():
+    """Manually trigger full reclassification of recent news (saude, policial, etc.)"""
+    fixed = await reclassify_recent_news(limit=3000)
+    return {"status": "success", "reclassified": fixed}
+
 async def scheduled_quality_check():
     """Periodic quality check: fix encoding, misclassification, broken images"""
     logger.info("🔍 Starting quality check...")
@@ -3900,14 +3948,17 @@ async def scheduled_quality_check():
             fixed_count += 1
     
     # 2. Fix misclassified articles using smart_reclassify
-    from services.news_service import smart_reclassify, SOURCE_FORCED_CATEGORY
+    from services.news_service import SOURCE_FORCED_CATEGORY as SVC_FORCED
     
-    for source, correct_cat in SOURCE_FORCED_CATEGORY.items():
+    for source, correct_cat in SVC_FORCED.items():
         result = await db.news.update_many(
             {"source_name": source, "category": {"$ne": correct_cat}},
             {"$set": {"category": correct_cat}}
         )
         fixed_count += result.modified_count
+    
+    # 2b. Full reclassification of recent articles (saude, policial, etc.)
+    fixed_count += await reclassify_recent_news(limit=2000)
     
     # 3. Fix health articles in football (but NOT player injuries)
     health_words = ["oncoclínica", "câncer", "diabetes", "dengue", "saúde pública",
