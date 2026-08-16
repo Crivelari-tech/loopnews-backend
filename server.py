@@ -621,7 +621,7 @@ O aplicativo **LoopNews** ("nós", "nosso" ou "aplicativo") respeita a sua priva
 ## 1. Dados que Coletamos
 
 ### 1.1 Dados fornecidos por você:
-- **Dados de autenticação:** Nome, endereço de e-mail e foto de perfil, obtidos através do login com Google.
+- **Dados de autenticação:** Endereço de e-mail, utilizado para login por código de verificação enviado ao seu e-mail (não utilizamos login com Google ou redes sociais).
 - **Preferências:** Categorias de interesse selecionadas durante o onboarding.
 
 ### 1.2 Dados coletados automaticamente:
@@ -653,7 +653,7 @@ O tratamento dos seus dados pessoais é realizado com base nas seguintes hipóte
 ## 4. Compartilhamento de Dados
 
 **Não vendemos seus dados pessoais.** Seus dados podem ser compartilhados apenas com:
-- **Google:** Para autenticação via Google Sign-In.
+- **Resend:** Para envio do código de verificação de login ao seu e-mail.
 - **Provedores de infraestrutura:** Servidores e banco de dados para o funcionamento do app.
 - **Autoridades legais:** Quando estritamente exigido por lei ou ordem judicial.
 
@@ -758,7 +758,7 @@ O LoopNews disponibiliza uma plataforma mobile de agregação de conteúdo infor
 
 ## 2. Cadastro e Acesso
 
-**2.1** Para utilizar os recursos personalizados do aplicativo, o usuário deverá realizar a autenticação por meio de sua conta Google.
+**2.1** Para utilizar os recursos personalizados do aplicativo, o usuário deverá realizar a autenticação informando seu endereço de e-mail e o código de verificação enviado a ele.
 
 **2.2** O usuário é o único responsável por manter a segurança de suas credenciais de acesso, sendo vedado o compartilhamento de sua conta com terceiros.
 
@@ -1755,11 +1755,16 @@ def titles_are_similar(title1: str, title2: str, threshold: float = 0.85) -> boo
 
 async def is_duplicate_news(title: str, source_url: str = "") -> bool:
     """Verifica se a notícia é duplicata por URL, título exato, prefixo de 6 palavras ou fuzzy"""
-    # 1. Check exact URL match
+    # 1. Check exact URL match (também compara URL sem parâmetros de rastreamento)
     if source_url:
         url_match = await db.news.find_one({"source_url": source_url})
         if url_match:
             return True
+        base_url = source_url.split("?")[0].rstrip("/")
+        if base_url and base_url != source_url:
+            norm_match = await db.news.find_one({"source_url": {"$regex": f"^{re.escape(base_url)}(\\?|/?$)"}})
+            if norm_match:
+                return True
     
     # 2. Check exact title match
     exact = await db.news.find_one({"title": title})
@@ -1812,19 +1817,30 @@ async def process_and_save_news(news_item: News, news_list: list) -> bool:
     
     if should_include:
         news_data = news_item.dict()
-        news_data["title"] = clean_news_text(news_data.get("title", ""))
-        news_data["summary"] = clean_news_text(news_data.get("summary", ""))
+        # Clean encoding issues (mojibake, HTML entities, '?' chars)
+        try:
+            from services.classifier import classify as classify_news, clean_text as deep_clean
+        except ImportError:
+            from classifier import classify as classify_news, clean_text as deep_clean
+        news_data["title"] = deep_clean(clean_news_text(news_data.get("title", "")))
+        news_data["summary"] = deep_clean(clean_news_text(news_data.get("summary", "")))
         news_data["credibility_score"] = credibility["credibility_score"]
         news_data["is_verified"] = True
         news_data["verification_reason"] = credibility["reason"]
         
-        # Smart reclassification based on content keywords
-        news_data["category"] = smart_reclassify(
+        # Classificação nas 15 novas categorias (título + resumo + fonte)
+        news_data["category"] = classify_news(
             news_data.get("title", ""),
             news_data.get("summary", ""),
-            news_data.get("category", "geral"),
-            news_data.get("source_name", "")
+            news_data.get("source_name", ""),
+            news_data.get("category", "geral")
         )
+        
+        # Fallback de resumo: nunca deixar vazio se houver conteúdo disponível
+        if not news_data.get("summary"):
+            content = deep_clean(news_data.get("content", "") or "")
+            if content and content.lower() != news_data["title"].lower():
+                news_data["summary"] = content[:220].rsplit(" ", 1)[0] + "..."
         
         # Enhance image: try OG extraction or category fallback
         news_data = await enhance_news_image(news_data)
@@ -3126,34 +3142,12 @@ async def delete_news(news_id: str, user: User = Depends(get_current_user)):
 
 @api_router.get("/categories")
 async def get_categories():
-    """Get available news categories"""
-    return [
-        # Principais
-        {"id": "tecnologia", "name": "Tecnologia", "icon": "laptop"},
-        {"id": "esportes", "name": "Esportes", "icon": "football"},
-        {"id": "politica", "name": "Política", "icon": "balance-scale"},
-        {"id": "games", "name": "Games", "icon": "gamepad"},
-        {"id": "economia", "name": "Economia", "icon": "chart-line"},
-        {"id": "entretenimento", "name": "Entretenimento", "icon": "film"},
-        {"id": "saude", "name": "Saúde", "icon": "heartbeat"},
-        {"id": "ciencia", "name": "Ciência", "icon": "flask"},
-        # Mundo
-        {"id": "mundo", "name": "Mundo", "icon": "globe"},
-        # Finanças e Investimentos
-        {"id": "financas", "name": "Finanças", "icon": "wallet"},
-        {"id": "investimentos", "name": "Investimentos", "icon": "trending-up"},
-        {"id": "criptomoedas", "name": "Criptomoedas", "icon": "logo-bitcoin"},
-        # Entretenimento Específico
-        {"id": "anime", "name": "Anime", "icon": "planet"},
-        {"id": "filmes", "name": "Filmes", "icon": "videocam"},
-        {"id": "series", "name": "Séries", "icon": "tv"},
-        {"id": "novelas", "name": "Novelas", "icon": "heart"},
-        # Famosos e Futebol
-        {"id": "famosos", "name": "Famosos", "icon": "star"},
-        {"id": "futebol", "name": "Futebol", "icon": "football"},
-        # Policial
-        {"id": "policial", "name": "Policial", "icon": "alert-circle"},
-    ]
+    """Get available news categories (15 categorias principais)"""
+    try:
+        from services.classifier import CATEGORIES_15
+    except ImportError:
+        from classifier import CATEGORIES_15
+    return CATEGORIES_15
 
 # ==================== NEWS SOURCES INFO ====================
 
@@ -3896,14 +3890,22 @@ async def reclassify_recent_news(limit: int = 2000) -> int:
     
     async for doc in cursor:
         try:
-            new_cat = smart_reclassify(
-                doc.get("title", ""),
-                doc.get("summary", ""),
-                doc.get("category", "geral"),
-                doc.get("source_name", "")
-            )
+            try:
+                from services.classifier import classify as classify_news, clean_text as deep_clean
+            except ImportError:
+                from classifier import classify as classify_news, clean_text as deep_clean
+            clean_title = deep_clean(doc.get("title", ""))
+            clean_summary = deep_clean(doc.get("summary", ""))
+            new_cat = classify_news(clean_title, clean_summary, doc.get("source_name", ""), doc.get("category", "geral"))
+            updates = {}
             if new_cat != doc.get("category"):
-                await db.news.update_one({"_id": doc["_id"]}, {"$set": {"category": new_cat}})
+                updates["category"] = new_cat
+            if clean_title and clean_title != doc.get("title"):
+                updates["title"] = clean_title
+            if clean_summary and clean_summary != doc.get("summary"):
+                updates["summary"] = clean_summary
+            if updates:
+                await db.news.update_one({"_id": doc["_id"]}, {"$set": updates})
                 fixed += 1
         except Exception:
             continue
@@ -3911,6 +3913,31 @@ async def reclassify_recent_news(limit: int = 2000) -> int:
     if fixed > 0:
         logger.info(f"🏷️ Reclassificação: {fixed} notícias movidas para a categoria correta")
     return fixed
+
+@api_router.post("/admin/migrate-categories")
+async def migrate_categories():
+    """Migra TODAS as notícias e interesses dos usuários das categorias antigas para as 15 novas."""
+    try:
+        from services.classifier import OLD_TO_NEW
+    except ImportError:
+        from classifier import OLD_TO_NEW
+    moved = 0
+    # 1. Notícias: mapeamento direto antigo -> novo
+    for old, new in OLD_TO_NEW.items():
+        if old != new:
+            r = await db.news.update_many({"category": old}, {"$set": {"category": new}})
+            moved += r.modified_count
+    # 2. Interesses dos usuários
+    users_updated = 0
+    async for user in db.users.find({"interests": {"$exists": True, "$ne": []}}, {"_id": 1, "interests": 1}):
+        old_interests = user.get("interests", [])
+        new_interests = list(dict.fromkeys(OLD_TO_NEW.get(i, i) for i in old_interests))
+        if new_interests != old_interests:
+            await db.users.update_one({"_id": user["_id"]}, {"$set": {"interests": new_interests}})
+            users_updated += 1
+    # 3. Reclassificação fina das notícias recentes (corrige erros de conteúdo)
+    reclassified = await reclassify_recent_news(limit=3000)
+    return {"status": "success", "news_moved": moved, "users_updated": users_updated, "reclassified": reclassified}
 
 @api_router.post("/admin/reclassify-all")
 async def trigger_reclassify_all():
