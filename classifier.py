@@ -175,7 +175,11 @@ KW = {
             "baleado", "baleada", "esfaqueado", "esfaqueada", "corpo encontrado", "cadáver",
             "foragido", "investigação criminal", "suspeito", "criminoso", "quadrilha",
             "apreensão", "apreensao", "morto a tiros", "morta a tiros", "acidente grave",
-            "atropelamento", "vítima", "vitima", "morre após", "morre apos", "encontrado morto"],
+            "atropelamento", "atropela", "atropelado", "atropelada", "vítima", "vitima",
+            "morre após", "morre apos", "encontrado morto", "morre em", "morrem", "mortos",
+            "morto em", "morta em", "mata ", "capota", "capotamento", "colisão", "colisao",
+            "batida entre", "carro bate", "moto bate", "grave acidente", "acidente deixa",
+            "acidente na", "acidente em", "acidente entre", "engavetamento"],
         1: ["crime", "violência", "violencia", "segurança pública", "delegado", "pm "],
     },
 }
@@ -184,13 +188,19 @@ KW = {
 EXCLUSIONS = {
     "seguranca": ["guerra", "israel", "hamas", "ucrânia", "ucrania", "rússia", "russia", "gaza",
                   "bombardeio", "míssil", "missil", "exército", "tropas", "cessar-fogo"],
-    "futebol": ["basquete", "vôlei", "volei", "fórmula 1", "formula 1", "tênis ", "ufc", "mma"],
+    "futebol": ["basquete", "vôlei", "volei", "fórmula 1", "formula 1", "tênis ", "ufc", "mma",
+                "presidente da república", "presidente lula", "senado", "câmara dos deputados",
+                "stf", "eleição", "eleicao", "ministro da"],
     "esportes": ["futebol", "brasileirão", "brasileirao", "flamengo", "corinthians", "palmeiras",
-                 "libertadores", "gol "],
+                 "libertadores", "gol ", "presidente da república", "senado", "stf",
+                 "câmara dos deputados", "eleição", "eleicao"],
     "economia": ["homicídio", "homicidio", "preso", "delegacia", "terremoto", "furacão"],
     "celebridades": ["playstation", "xbox", "nintendo", "gameplay", "assassinato", "homicídio",
                      "delegacia", "preso por"],
-    "automoveis": ["fórmula 1", "formula 1", "f1 ", "grande prêmio", "gp de", "acidente de trânsito com morte"],
+    "automoveis": ["fórmula 1", "formula 1", "f1 ", "grande prêmio", "gp de",
+                   "morre", "morrem", "morto", "morta", "mortos", "mata ", "atropela",
+                   "capota", "colisão", "colisao", "acidente", "vítima", "vitima",
+                   "baleado", "preso", "delegacia"],
     "ciencia_saude": ["lesão muscular", "desfalque", "jogador", "atleta"],
 }
 
@@ -199,7 +209,7 @@ PRIORITY = ["futebol", "seguranca", "games", "planeta", "musica", "automoveis", 
             "educacao", "ciencia_saude", "esportes", "economia", "tecnologia", "celebridades",
             "entretenimento", "politica_mundo"]
 
-# Fontes com categoria forçada (nas NOVAS categorias)
+# Fontes com categoria PADRÃO (usada só quando a classificação não encontra sinal claro)
 SOURCE_FORCED = {
     "Portal do Bitcoin": "economia",
     "Hugo Gloss": "celebridades",
@@ -238,10 +248,6 @@ def clean_text(text: str) -> str:
 
 def classify(title: str, summary: str = "", source_name: str = "", current: str = "") -> str:
     """Classifica a notícia em uma das 15 categorias analisando título (2x) e resumo (1x)."""
-    # Fonte com categoria forçada
-    if source_name in SOURCE_FORCED:
-        return SOURCE_FORCED[source_name]
-
     t = f" {(title or '').lower()} "
     s = f" {(summary or '').lower()} "
     full = t + s
@@ -263,7 +269,9 @@ def classify(title: str, summary: str = "", source_name: str = "", current: str 
             scores[cat] = score
 
     if not scores:
-        # Sem sinal claro: mantém categoria atual mapeada, ou politica_mundo
+        # Sem sinal claro: usa categoria padrão da fonte, senão a atual mapeada
+        if source_name in SOURCE_FORCED:
+            return SOURCE_FORCED[source_name]
         mapped = OLD_TO_NEW.get((current or "").lower(), "")
         return mapped if mapped in VALID_IDS else "politica_mundo"
 
