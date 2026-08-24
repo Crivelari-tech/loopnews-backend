@@ -254,6 +254,10 @@ async def send_verification_email(email: str, code: str):
         logger.error(f"Error sending email: {str(e)}")
         return False
 
+# Conta demo para revisores do Google Play (código fixo, sem envio de email)
+DEMO_REVIEWER_EMAIL = "reviewer@loopnewsapp.com"
+DEMO_REVIEWER_CODE = "123456"
+
 @api_router.post("/auth/send-code")
 async def send_verification_code(request: SendCodeRequest):
     """Send a verification code to the email"""
@@ -262,6 +266,14 @@ async def send_verification_code(request: SendCodeRequest):
     # Validate email format
     if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
         raise HTTPException(status_code=400, detail="Email inválido")
+    
+    # DEMO ACCOUNT for Google Play reviewers: fixed code, no email sent
+    if email == DEMO_REVIEWER_EMAIL:
+        verification_codes[email] = {
+            "code": DEMO_REVIEWER_CODE,
+            "expires_at": datetime.now(timezone.utc) + timedelta(days=3650)
+        }
+        return {"success": True, "message": "Código enviado para seu email"}
     
     # Generate 6-digit code
     code = ''.join(random.choices(string.digits, k=6))
@@ -293,6 +305,13 @@ async def verify_code(request: VerifyCodeRequest, response: Response):
     """Verify the code and create session"""
     email = request.email.lower().strip()
     code = request.code.strip()
+    
+    # DEMO ACCOUNT (revisores Google Play): código fixo sempre válido
+    if email == DEMO_REVIEWER_EMAIL and code == DEMO_REVIEWER_CODE:
+        verification_codes[email] = {
+            "code": DEMO_REVIEWER_CODE,
+            "expires_at": datetime.now(timezone.utc) + timedelta(days=3650)
+        }
     
     # Check if code exists
     if email not in verification_codes:
