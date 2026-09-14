@@ -1855,6 +1855,23 @@ async def process_and_save_news(news_item: News, news_list: list) -> bool:
             news_data.get("category", "geral")
         )
         
+        # Refinamento com IA: o LLM decide a categoria final (mais preciso que keywords)
+        try:
+            try:
+                from services.ai_service import classify_with_llm
+            except ImportError:
+                from ai_service import classify_with_llm
+            llm_cat = await classify_with_llm(
+                news_data.get("title", ""),
+                news_data.get("summary", ""),
+                news_data.get("source_name", "")
+            )
+            if llm_cat:
+                news_data["category"] = llm_cat
+                news_data["llm_classified"] = True
+        except Exception as e:
+            logger.debug(f"LLM classify skipped: {str(e)}")
+        
         # Fallback de resumo: nunca deixar vazio se houver conteúdo disponível
         if not news_data.get("summary"):
             content = deep_clean(news_data.get("content", "") or "")
@@ -3904,7 +3921,8 @@ async def reclassify_recent_news(limit: int = 2000) -> int:
     Processes in small batches to keep memory low (Render free tier)."""
     fixed = 0
     cursor = db.news.find(
-        {}, {"_id": 1, "title": 1, "summary": 1, "category": 1, "source_name": 1}
+        {"llm_classified": {"$ne": True}},
+        {"_id": 1, "title": 1, "summary": 1, "category": 1, "source_name": 1}
     ).sort("published_at", -1).limit(limit)
     
     async for doc in cursor:
@@ -3963,6 +3981,44 @@ async def trigger_reclassify_all():
     """Manually trigger full reclassification of recent news (saude, policial, etc.)"""
     fixed = await reclassify_recent_news(limit=3000)
     return {"status": "success", "reclassified": fixed}
+
+@api_router.post("/admin/reclassify-llm")
+async def trigger_reclassify_llm(limit: int = 400):
+    """Reclassifica as notícias mais recentes usando IA (gpt-4.1-mini) em lotes de 20.
+    Muito mais preciso que keywords. Marca artigos com llm_classified=True para que
+    o quality check por keywords não desfaça a decisão da IA."""
+    try:
+        from services.ai_service import classify_batch_llm
+    except ImportError:
+        from ai_service import classify_batch_llm
+    
+    docs = await db.news.find(
+        {}, {"_id": 1, "title": 1, "summary": 1, "category": 1}
+    ).sort("published_at", -1).limit(limit).to_list(length=limit)
+    
+    fixed = 0
+    processed = 0
+    failed_batches = 0
+    for i in range(0, len(docs), 20):
+        batch = docs[i:i + 20]
+        cats = await classify_batch_llm([
+            {"title": d.get("title", ""), "summary": d.get("summary", "")} for d in batch
+        ])
+        if not cats:
+            failed_batches += 1
+            continue
+        for d, cat in zip(batch, cats):
+            processed += 1
+            if not cat:
+                continue
+            updates = {"llm_classified": True}
+            if cat != d.get("category"):
+                updates["category"] = cat
+                fixed += 1
+            await db.news.update_one({"_id": d["_id"]}, {"$set": updates})
+    
+    logger.info(f"🤖 Reclassificação IA: {processed} processadas, {fixed} corrigidas")
+    return {"status": "success", "processed": processed, "reclassified": fixed, "failed_batches": failed_batches}
 
 async def scheduled_quality_check():
     """Periodic quality check: fix encoding, misclassification, broken images"""
