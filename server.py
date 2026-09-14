@@ -3982,6 +3982,7 @@ async def trigger_reclassify_all():
     fixed = await reclassify_recent_news(limit=3000)
     return {"status": "success", "reclassified": fixed}
 
+@api_router.get("/admin/reclassify-llm")
 @api_router.post("/admin/reclassify-llm")
 async def trigger_reclassify_llm(limit: int = 400):
     """Reclassifica as notícias mais recentes usando IA (gpt-4.1-mini) em lotes de 20.
