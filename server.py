@@ -17,6 +17,7 @@ import json
 import re
 import random
 import string
+import secrets as secrets_lib
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -38,6 +39,9 @@ NEWS_API_KEY = os.environ.get('NEWS_API_KEY', '')
 GNEWS_API_KEY = os.environ.get('GNEWS_API_KEY', '')
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
+# Admin access control: ADMIN_KEY (query/header) and/or ADMIN_EMAILS (comma-separated)
+ADMIN_KEY = os.environ.get('ADMIN_KEY', '')
+ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get('ADMIN_EMAILS', '').split(',') if e.strip()}
 
 # Scheduler instance
 scheduler = AsyncIOScheduler()
@@ -204,6 +208,27 @@ async def get_current_user(request: Request) -> User:
 
 # Email verification codes storage (in production, use Redis or DB)
 verification_codes = {}
+# Rate limiting: email -> list of send timestamps (max 3 per 15 min)
+send_code_history = {}
+MAX_SENDS_PER_WINDOW = 3
+SEND_WINDOW_MINUTES = 15
+MAX_VERIFY_ATTEMPTS = 5
+
+def check_send_rate_limit(email: str) -> bool:
+    """Returns True if allowed to send another code to this email."""
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(minutes=SEND_WINDOW_MINUTES)
+    history = [t for t in send_code_history.get(email, []) if t > window_start]
+    if len(history) >= MAX_SENDS_PER_WINDOW:
+        send_code_history[email] = history
+        return False
+    history.append(now)
+    send_code_history[email] = history
+    # Opportunistic cleanup to keep the dict small
+    if len(send_code_history) > 5000:
+        for k in [k for k, v in send_code_history.items() if not v or v[-1] < window_start]:
+            send_code_history.pop(k, None)
+    return True
 
 class SendCodeRequest(BaseModel):
     email: str
@@ -275,28 +300,24 @@ async def send_verification_code(request: SendCodeRequest):
         }
         return {"success": True, "message": "Código enviado para seu email"}
     
-    # Generate 6-digit code
-    code = ''.join(random.choices(string.digits, k=6))
+    # Rate limit: max 3 codes per email per 15 minutes (prevents email bombing)
+    if not check_send_rate_limit(email):
+        raise HTTPException(status_code=429, detail="Muitas solicitações. Aguarde alguns minutos e tente novamente.")
     
-    # Store code with expiration (10 minutes)
+    # Generate cryptographically secure 6-digit code
+    code = f"{secrets_lib.randbelow(1000000):06d}"
+    
+    # Store code with expiration (10 minutes) and attempt counter
     verification_codes[email] = {
         "code": code,
-        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10)
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
+        "attempts": 0
     }
     
-    # Log the code for debugging (remove in production)
-    logger.info(f"🔐 Verification code for {email}: {code}")
-    
-    # Send email
+    # Send email (never log the code)
     sent = await send_verification_email(email, code)
-    
     if not sent:
-        # For development/testing: return success anyway and show code in logs
-        logger.warning(f"⚠️ Email failed to send, but code {code} is stored for {email}")
-        # In production, you may want to raise the error instead
-        # raise HTTPException(status_code=500, detail="Erro ao enviar email. Tente novamente.")
-        # For now, let's proceed and log the code
-        pass
+        logger.warning(f"⚠️ Email failed to send to {email}")
     
     return {"message": "Código enviado para seu email"}
 
@@ -324,8 +345,12 @@ async def verify_code(request: VerifyCodeRequest, response: Response):
         del verification_codes[email]
         raise HTTPException(status_code=400, detail="Código expirado")
     
-    # Check code
-    if stored["code"] != code:
+    # Check code (constant-time compare + brute-force protection)
+    if not secrets_lib.compare_digest(stored["code"], code):
+        stored["attempts"] = stored.get("attempts", 0) + 1
+        if stored["attempts"] >= MAX_VERIFY_ATTEMPTS and email != DEMO_REVIEWER_EMAIL:
+            del verification_codes[email]
+            raise HTTPException(status_code=429, detail="Muitas tentativas. Solicite um novo código.")
         raise HTTPException(status_code=400, detail="Código incorreto")
     
     # Code is valid, delete it
@@ -382,80 +407,6 @@ async def verify_code(request: VerifyCodeRequest, response: Response):
         "user": user_doc,
         "session_token": session_token
     }
-
-class GoogleAuthRequest(BaseModel):
-    email: str
-    name: str
-    picture: Optional[str] = None
-    google_id: str
-
-@api_router.post("/auth/google")
-async def google_auth(request: GoogleAuthRequest, response: Response):
-    """Authenticate user with Google credentials (for standalone app)"""
-    try:
-        # Check if user exists
-        existing_user = await db.users.find_one(
-            {"email": request.email},
-            {"_id": 0}
-        )
-        
-        if existing_user:
-            user_id = existing_user["user_id"]
-            # Update user data
-            await db.users.update_one(
-                {"user_id": user_id},
-                {"$set": {
-                    "name": request.name,
-                    "picture": request.picture or ""
-                }}
-            )
-            user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-        else:
-            # Create new user
-            user_id = f"user_{uuid.uuid4().hex[:12]}"
-            new_user = User(
-                user_id=user_id,
-                email=request.email,
-                name=request.name,
-                picture=request.picture or "",
-                interests=[],
-                onboarding_completed=False
-            )
-            await db.users.insert_one(new_user.dict())
-            user_doc = new_user.dict()
-        
-        # Create session
-        session_token = f"session_{uuid.uuid4().hex}"
-        expires_at = datetime.now(timezone.utc) + timedelta(days=30)
-        
-        session = UserSession(
-            user_id=user_id,
-            session_token=session_token,
-            expires_at=expires_at
-        )
-        await db.user_sessions.insert_one(session.dict())
-        
-        # Set cookie
-        response.set_cookie(
-            key="session_token",
-            value=session_token,
-            httponly=True,
-            secure=True,
-            samesite="none",
-            path="/",
-            max_age=30 * 24 * 60 * 60
-        )
-        
-        logger.info(f"User authenticated via Google: {request.email}")
-        
-        return {
-            "user": user_doc,
-            "session_token": session_token
-        }
-        
-    except Exception as e:
-        logger.error(f"Google auth error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/auth/session")
 async def exchange_session(request: SessionRequest, response: Response):
@@ -940,8 +891,8 @@ async def delete_account_page():
 
     <div id="form-container">
         <div class="form-group">
-            <label>Email da conta (usado no Google Sign-In):</label>
-            <input type="email" id="email" placeholder="seu.email@gmail.com" required>
+            <label>Email da conta:</label>
+            <input type="email" id="email" placeholder="seu.email@exemplo.com" required>
         </div>
         <div class="form-group">
             <label>Motivo (opcional):</label>
@@ -950,10 +901,18 @@ async def delete_account_page():
         <button onclick="submitRequest()">Solicitar Exclusao da Conta</button>
     </div>
 
+    <div id="code-container" style="display:none;">
+        <div class="info">Enviamos um <strong>codigo de verificacao</strong> para seu email. Digite-o abaixo para confirmar a exclusao. Isso garante que apenas o dono da conta possa exclui-la.</div>
+        <div class="form-group">
+            <label>Codigo de verificacao (6 digitos):</label>
+            <input type="text" id="code" placeholder="000000" maxlength="6" inputmode="numeric">
+        </div>
+        <button onclick="confirmDeletion()">Confirmar Exclusao</button>
+    </div>
+
     <div class="success" id="success-msg">
-        <h2>Solicitacao Enviada!</h2>
-        <p>Recebemos seu pedido de exclusao. Seus dados serao removidos em ate 48 horas uteis.</p>
-        <p>Voce recebera uma confirmacao no email informado.</p>
+        <h2>Conta Excluida!</h2>
+        <p>Seus dados foram removidos dos nossos servidores.</p>
     </div>
 
     <div class="footer">
@@ -974,9 +933,31 @@ async def delete_account_page():
             });
             if (resp.ok) {
                 document.getElementById('form-container').style.display = 'none';
+                document.getElementById('code-container').style.display = 'block';
+            } else {
+                const err = await resp.json().catch(() => ({}));
+                alert(err.detail || 'Erro ao enviar solicitacao. Tente novamente.');
+            }
+        } catch(e) {
+            alert('Erro de conexao. Tente novamente.');
+        }
+    }
+    async function confirmDeletion() {
+        const email = document.getElementById('email').value;
+        const code = document.getElementById('code').value;
+        if (!code) { alert('Digite o codigo recebido por email.'); return; }
+        try {
+            const resp = await fetch('/api/delete-account/confirm', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({email, code})
+            });
+            if (resp.ok) {
+                document.getElementById('code-container').style.display = 'none';
                 document.getElementById('success-msg').style.display = 'block';
             } else {
-                alert('Erro ao enviar solicitacao. Tente novamente.');
+                const err = await resp.json().catch(() => ({}));
+                alert(err.detail || 'Codigo invalido. Tente novamente.');
             }
         } catch(e) {
             alert('Erro de conexao. Tente novamente.');
@@ -989,27 +970,70 @@ async def delete_account_page():
 
 @api_router.post("/delete-account/request")
 async def request_account_deletion(request: Request):
-    """Process account/data deletion request"""
+    """Step 1: send a verification code to the email to prove ownership"""
     body = await request.json()
-    email = body.get("email", "").strip()
+    email = body.get("email", "").strip().lower()
     reason = body.get("reason", "")
     
-    if not email:
+    if not email or not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
         raise HTTPException(status_code=400, detail="Email is required")
+    
+    # Demo reviewer account cannot be deleted (needed for Play Store review)
+    if email == DEMO_REVIEWER_EMAIL:
+        return {"status": "code_sent"}
+    
+    # Rate limit shared with auth codes (prevents email bombing)
+    if not check_send_rate_limit(email):
+        raise HTTPException(status_code=429, detail="Muitas solicitações. Aguarde alguns minutos.")
     
     # Log the deletion request
     await db.deletion_requests.insert_one({
         "email": email,
         "reason": reason,
-        "status": "pending",
+        "status": "pending_verification",
         "requested_at": datetime.now(timezone.utc),
     })
     
-    # Try to find and delete user data
+    # Send verification code (only the real owner of the email can confirm)
+    code = f"{secrets_lib.randbelow(1000000):06d}"
+    verification_codes[f"delete:{email}"] = {
+        "code": code,
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
+        "attempts": 0
+    }
+    await send_verification_email(email, code)
+    
+    return {"status": "code_sent"}
+
+@api_router.post("/delete-account/confirm")
+async def confirm_account_deletion(request: Request):
+    """Step 2: verify the code and delete the account/data"""
+    body = await request.json()
+    email = body.get("email", "").strip().lower()
+    code = body.get("code", "").strip()
+    
+    if not email or not code:
+        raise HTTPException(status_code=400, detail="Email e código são obrigatórios")
+    
+    key = f"delete:{email}"
+    stored = verification_codes.get(key)
+    if not stored:
+        raise HTTPException(status_code=400, detail="Código expirado ou inválido")
+    if datetime.now(timezone.utc) > stored["expires_at"]:
+        del verification_codes[key]
+        raise HTTPException(status_code=400, detail="Código expirado")
+    if not secrets_lib.compare_digest(stored["code"], code):
+        stored["attempts"] = stored.get("attempts", 0) + 1
+        if stored["attempts"] >= MAX_VERIFY_ATTEMPTS:
+            del verification_codes[key]
+            raise HTTPException(status_code=429, detail="Muitas tentativas. Solicite um novo código.")
+        raise HTTPException(status_code=400, detail="Código incorreto")
+    del verification_codes[key]
+    
+    # Ownership proven: delete user data
     user = await db.users.find_one({"email": email})
     if user:
         user_id = user.get("user_id", "")
-        # Delete all user data
         await db.users.delete_one({"email": email})
         await db.news_likes.delete_many({"user_id": user_id})
         await db.saved_news.delete_many({"user_id": user_id})
@@ -1017,19 +1041,18 @@ async def request_account_deletion(request: Request):
         await db.push_tokens.delete_many({"user_id": user_id})
         await db.notification_logs.delete_many({"user_id": user_id})
         
-        # Update deletion request status
         await db.deletion_requests.update_one(
-            {"email": email, "status": "pending"},
+            {"email": email, "status": "pending_verification"},
             {"$set": {"status": "completed", "completed_at": datetime.now(timezone.utc)}}
         )
         logger.info(f"Account deleted for {email}")
     else:
         await db.deletion_requests.update_one(
-            {"email": email, "status": "pending"},
+            {"email": email, "status": "pending_verification"},
             {"$set": {"status": "not_found"}}
         )
     
-    return {"status": "ok", "message": "Deletion request processed"}
+    return {"status": "ok", "message": "Deletion completed"}
 
 
 @api_router.get("/users/profile")
@@ -4267,8 +4290,33 @@ app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ==================== ADMIN GUARD ====================
+async def _is_admin_request(request: Request) -> bool:
+    """Admin access via ADMIN_KEY (header/query) or logged-in user in ADMIN_EMAILS."""
+    # 1. Admin key via header or query param (browser-friendly)
+    provided = request.headers.get("X-Admin-Key") or request.query_params.get("key", "")
+    if ADMIN_KEY and provided and secrets_lib.compare_digest(provided, ADMIN_KEY):
+        return True
+    # 2. Authenticated user whose email is in the admin allowlist
+    if ADMIN_EMAILS:
+        try:
+            user = await get_current_user(request)
+            if user.email.lower() in ADMIN_EMAILS:
+                return True
+        except HTTPException:
+            pass
+    return False
+
+@app.middleware("http")
+async def admin_guard(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/admin") or path == "/api/scheduler/trigger":
+        if not await _is_admin_request(request):
+            return JSONResponse(status_code=403, content={"detail": "Acesso restrito ao administrador"})
+    return await call_next(request)
