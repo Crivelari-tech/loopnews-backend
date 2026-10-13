@@ -318,6 +318,7 @@ async def send_verification_code(request: SendCodeRequest):
     sent = await send_verification_email(email, code)
     if not sent:
         logger.warning(f"⚠️ Email failed to send to {email}")
+        raise HTTPException(status_code=502, detail="Não foi possível enviar o email agora. Tente novamente em instantes.")
     
     return {"message": "Código enviado para seu email"}
 
@@ -3566,6 +3567,25 @@ async def send_daily_digest():
         top_categories = [c["_id"] for c in categories[:3]]
         categories_text = ", ".join(top_categories) if top_categories else "várias categorias"
         
+        # Pick the top headline (trending/most recent) to feature in the push
+        top_news = await db.news.find_one(
+            {"published_at": {"$gte": yesterday}, "title": {"$ne": None}},
+            {"news_id": 1, "title": 1, "category": 1},
+            sort=[("is_trending", -1), ("credibility_score", -1), ("published_at", -1)]
+        )
+        
+        # Greeting based on Brazil time (UTC-3)
+        hour_brt = (datetime.now(timezone.utc) - timedelta(hours=3)).hour
+        if hour_brt < 12:
+            push_title = "☀️ Bom dia! Suas notícias chegaram"
+        else:
+            push_title = "🌆 As notícias desta tarde no LoopNews"
+        
+        if top_news and top_news.get("title"):
+            push_body = f"{top_news['title'][:90]} — e mais {max(total_news - 1, 0)} notícias te esperando!"
+        else:
+            push_body = f"{total_news} notícias de {categories_text}. Confira as principais!"
+        
         # Get users with push tokens
         users_cursor = db.users.find(
             {"push_token": {"$ne": None}, "notifications_enabled": True},
@@ -3578,12 +3598,13 @@ async def send_daily_digest():
         if push_tokens:
             await send_expo_push_notification(
                 push_tokens=push_tokens,
-                title="📰 Resumo do Dia - LoopNews",
-                body=f"{total_news} notícias de {categories_text}. Confira as principais!",
+                title=push_title,
+                body=push_body,
                 data={
                     "type": "daily_digest",
                     "total_news": total_news,
-                    "categories": top_categories
+                    "categories": top_categories,
+                    "news_id": top_news.get("news_id") if top_news else None
                 }
             )
             
@@ -3596,12 +3617,12 @@ async def send_daily_digest():
                 if matching_categories:
                     body = f"{sum(c['count'] for c in matching_categories)} notícias dos seus interesses disponíveis!"
                 else:
-                    body = f"{total_news} notícias de {categories_text}. Confira as principais!"
+                    body = push_body
                 
                 notification = {
                     "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
                     "user_id": user["user_id"],
-                    "title": "📰 Resumo do Dia - LoopNews",
+                    "title": push_title,
                     "body": body,
                     "data": {"type": "daily_digest", "total_news": total_news},
                     "read": False,
@@ -4005,6 +4026,13 @@ async def trigger_reclassify_all():
     fixed = await reclassify_recent_news(limit=3000)
     return {"status": "success", "reclassified": fixed}
 
+@api_router.get("/admin/send-digest")
+@api_router.post("/admin/send-digest")
+async def trigger_send_digest():
+    """Dispara manualmente o resumo de notícias (push) para teste"""
+    await send_daily_digest()
+    return {"status": "success", "message": "Digest disparado. Verifique os logs/dispositivos."}
+
 @api_router.get("/admin/reclassify-llm")
 @api_router.post("/admin/reclassify-llm")
 async def trigger_reclassify_llm(limit: int = 400):
@@ -4219,12 +4247,12 @@ def setup_scheduler():
         replace_existing=True
     )
     
-    # Job 5: Evening digest at 23pm UTC (8pm Brazil time)
+    # Job 5: Evening digest at 21pm UTC (6pm Brazil time)
     scheduler.add_job(
         send_daily_digest,
-        CronTrigger(hour=23, minute=0),
+        CronTrigger(hour=21, minute=0),
         id="evening_digest",
-        name="Evening News Digest (8pm Brazil)",
+        name="Evening News Digest (6pm Brazil)",
         replace_existing=True
     )
     
