@@ -18,6 +18,7 @@ import re
 import random
 import string
 import secrets as secrets_lib
+import unicodedata
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -1468,10 +1469,79 @@ CATEGORY_IMAGE_POOLS = {
         "https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=800",
         "https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=800",
         "https://images.unsplash.com/photo-1553778263-73a83bab9b0c?w=800",
-        "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800",
-        "https://images.unsplash.com/photo-1529900748604-07564a03e7a6?w=800",
     ],
 }
+
+# Pools para as 15 categorias atuais (mescla os antigos + imagens novas validadas)
+def _dedup(urls):
+    return list(dict.fromkeys(urls))
+
+CATEGORY_IMAGE_POOLS.update({
+    "economia": _dedup(
+        CATEGORY_IMAGE_POOLS["economia"] + CATEGORY_IMAGE_POOLS["financas"] +
+        CATEGORY_IMAGE_POOLS["investimentos"] + CATEGORY_IMAGE_POOLS["criptomoedas"][:4]
+    ),
+    "entretenimento": _dedup(
+        CATEGORY_IMAGE_POOLS["entretenimento"] + CATEGORY_IMAGE_POOLS["filmes"] +
+        CATEGORY_IMAGE_POOLS["series"]
+    ),
+    "celebridades": CATEGORY_IMAGE_POOLS["famosos"],
+    "ciencia_saude": _dedup(CATEGORY_IMAGE_POOLS["ciencia"] + CATEGORY_IMAGE_POOLS["saude"]),
+    "politica_mundo": _dedup(CATEGORY_IMAGE_POOLS["politica"] + CATEGORY_IMAGE_POOLS["mundo"]),
+    "musica": [
+        "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800",
+        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800",
+        "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800",
+        "https://images.unsplash.com/photo-1598387993441-a364f854c3e1?w=800",
+        "https://images.unsplash.com/photo-1478147427282-58a87a120781?w=800",
+        "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800",
+        "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=800",
+        "https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=800",
+        "https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=800",
+        "https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?w=800",
+    ],
+    "gastronomia": [
+        "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800",
+        "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800",
+        "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=800",
+        "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=800",
+        "https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=800",
+        "https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?w=800",
+    ],
+    "automoveis": [
+        "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=800",
+        "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=800",
+        "https://images.unsplash.com/photo-1511919884226-fd3cad34687c?w=800",
+        "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=800",
+        "https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=800",
+        "https://images.unsplash.com/photo-1542282088-fe8426682b8f?w=800",
+    ],
+    "educacao": [
+        "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800",
+        "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800",
+        "https://images.unsplash.com/photo-1509062522246-3755977927d7?w=800",
+        "https://images.unsplash.com/photo-1517486808906-6ca8b3f04846?w=800",
+        "https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=800",
+    ],
+    "planeta": [
+        "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=800",
+        "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800",
+        "https://images.unsplash.com/photo-1501854140801-50d01698950b?w=800",
+        "https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=800",
+        "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800",
+        "https://images.unsplash.com/photo-1446329813274-7c9036bd9a1f?w=800",
+        "https://images.unsplash.com/photo-1493962853295-0fd70327578a?w=800",
+        "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=800",
+    ],
+    "seguranca": [
+        "https://images.unsplash.com/photo-1557804506-669a67965ba0?w=800",
+        "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=800",
+        "https://images.unsplash.com/photo-1494500764479-0c8f2919a3d8?w=800",
+        "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800",
+        "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?w=800",
+        "https://images.unsplash.com/photo-1495020689067-958852a7765e?w=800",
+    ],
+})
 
 class OGImageParser(HTMLParser):
     """Parse HTML to extract Open Graph image"""
@@ -1533,19 +1603,24 @@ def get_category_fallback_image(category: str, title: str = "") -> str:
     idx = int(hashlib.md5(title.encode()).hexdigest(), 16) % len(pool)
     return pool[idx]
 
+BAD_IMAGE_PATTERNS = [
+    "1x1", "pixel", "spacer", "blank", "logo", "favicon", "icon",
+    "tracking", "beacon", "placeholder", "default_avatar", "default-share",
+    "share-default", "og-default", "default_og", "generic",
+    "108x81",  # investing.com tiny thumbnails
+    "wp-content/plugins",  # WordPress plugin images
+]
+
+def has_bad_image_pattern(url: str) -> bool:
+    url_lower = (url or "").lower()
+    return any(p in url_lower for p in BAD_IMAGE_PATTERNS)
+
 async def validate_image_url(url: str) -> bool:
     """Check if an image URL is valid, loads, and is a real image (not tiny icon)"""
     if not url or len(url) < 10 or url.endswith("/"):
         return False
     # Filter out known bad patterns
-    bad_patterns = [
-        "1x1", "pixel", "spacer", "blank", "logo", "favicon", "icon",
-        "tracking", "beacon", "placeholder", "default_avatar",
-        "108x81",  # investing.com tiny thumbnails
-        "wp-content/plugins",  # WordPress plugin images
-    ]
-    url_lower = url.lower()
-    if any(p in url_lower for p in bad_patterns):
+    if has_bad_image_pattern(url):
         return False
     try:
         async with httpx.AsyncClient() as http_client:
@@ -1579,7 +1654,7 @@ async def enhance_news_image(news_data: dict) -> dict:
     # Step 1: Always try OG extraction first — these are the most relevant images
     if source_url:
         og_image = await extract_og_image(source_url)
-        if og_image and len(og_image) > 10:
+        if og_image and len(og_image) > 10 and not has_bad_image_pattern(og_image):
             news_data["image_url"] = og_image
             return news_data
 
@@ -1871,6 +1946,10 @@ async def process_and_save_news(news_item: News, news_list: list) -> bool:
         news_data["is_verified"] = True
         news_data["verification_reason"] = credibility["reason"]
         
+        # Sanitiza resumos salvos como texto 'null'
+        if (news_data.get("summary") or "").strip() in ("null", "None", "undefined"):
+            news_data["summary"] = ""
+        
         # Classificação nas 15 novas categorias (título + resumo + fonte)
         news_data["category"] = classify_news(
             news_data.get("title", ""),
@@ -2139,6 +2218,9 @@ RSS_FEEDS = [
     {"url": "https://www.bbc.com/portuguese/topics/cvjp2jr0k9rt/rss.xml", "source": "BBC Brasil", "category": "mundo"},
     {"url": "https://feeds.folha.uol.com.br/mundo/rss091.xml", "source": "Folha Mundo", "category": "mundo"},
     {"url": "https://rss.uol.com.br/feed/noticias.xml", "source": "UOL Notícias", "category": "mundo"},
+    {"url": "https://rss.uol.com.br/feed/economia.xml", "source": "UOL Economia", "category": "economia"},
+    {"url": "https://rss.uol.com.br/feed/tecnologia.xml", "source": "UOL Tilt", "category": "tecnologia"},
+    {"url": "https://rss.uol.com.br/feed/entretenimento.xml", "source": "UOL Splash", "category": "entretenimento"},
     {"url": "https://www.cnnbrasil.com.br/internacional/feed/", "source": "CNN Brasil Internacional", "category": "mundo"},
     {"url": "https://agenciabrasil.ebc.com.br/rss/internacional/feed.xml", "source": "Agência Brasil", "category": "mundo"},
     
@@ -2857,6 +2939,79 @@ async def refresh_news(user: User = Depends(get_current_user)):
     added = new_count - old_count
     
     return {"message": "News refreshed successfully", "new_news_added": added}
+
+# ==================== NEWS SEARCH ====================
+
+_ACCENT_CLASSES = {
+    'a': '[aáàâãä]', 'e': '[eéèêë]', 'i': '[iíìîï]',
+    'o': '[oóòôõö]', 'u': '[uúùûü]', 'c': '[cç]', 'n': '[nñ]',
+}
+
+def accent_insensitive_pattern(word: str) -> str:
+    """Build a regex that matches the word regardless of accents (ex: inflacao == inflação)"""
+    out = []
+    for ch in unicodedata.normalize('NFD', word.lower()):
+        if unicodedata.category(ch) == 'Mn':
+            continue  # drop combining accents
+        out.append(_ACCENT_CLASSES.get(ch, re.escape(ch)))
+    return ''.join(out)
+
+@api_router.get("/news/search")
+async def search_news(
+    q: str = "",
+    skip: int = 0,
+    limit: int = 30,
+    user: User = Depends(get_current_user)
+):
+    """Busca notícias por palavra-chave (título e resumo, ignora acentos).
+    Todas as palavras precisam aparecer; resultados com match no título vêm primeiro."""
+    q = (q or "").strip()
+    if len(q) < 2:
+        return {"news": [], "total": 0, "query": q}
+    
+    words = [w for w in q.split() if len(w) >= 2][:6]
+    if not words:
+        return {"news": [], "total": 0, "query": q}
+    
+    conditions = []
+    for w in words:
+        pat = r"\b" + accent_insensitive_pattern(w)
+        conditions.append({"$or": [
+            {"title": {"$regex": pat, "$options": "i"}},
+            {"summary": {"$regex": pat, "$options": "i"}},
+            {"ai_summary": {"$regex": pat, "$options": "i"}},
+        ]})
+    query = {"$and": conditions}
+    
+    fetch_n = min(limit * 2, 80)
+    cursor = db.news.find(query, {"_id": 0}).sort([
+        ("published_at", -1), ("news_id", -1)
+    ]).skip(skip).limit(fetch_n)
+    results = await cursor.to_list(length=fetch_n)
+    
+    # Relevância: notícias com a busca no TÍTULO primeiro (ordem de data preservada)
+    title_pats = [re.compile(r"\b" + accent_insensitive_pattern(w), re.IGNORECASE) for w in words]
+    def title_rank(n):
+        title = n.get("title", "")
+        hits = sum(1 for p in title_pats if p.search(title))
+        return -hits
+    results.sort(key=title_rank)
+    results = results[:limit]
+    
+    # Flags de curtida/salvo do usuário
+    news_ids = [n["news_id"] for n in results]
+    liked = {d["news_id"] for d in await db.news_likes.find(
+        {"user_id": user.user_id, "news_id": {"$in": news_ids}}, {"_id": 0, "news_id": 1}
+    ).to_list(length=limit)}
+    saved = {d["news_id"] for d in await db.saved_news.find(
+        {"user_id": user.user_id, "news_id": {"$in": news_ids}}, {"_id": 0, "news_id": 1}
+    ).to_list(length=limit)}
+    for n in results:
+        n["is_liked"] = n["news_id"] in liked
+        n["is_saved"] = n["news_id"] in saved
+    
+    total = await db.news.count_documents(query)
+    return {"news": results, "total": total, "query": q}
 
 @api_router.get("/news/{news_id}")
 async def get_single_news(news_id: str, user: User = Depends(get_current_user)):
@@ -4026,6 +4181,41 @@ async def trigger_reclassify_all():
     fixed = await reclassify_recent_news(limit=3000)
     return {"status": "success", "reclassified": fixed}
 
+@api_router.get("/admin/fix-null-summaries")
+@api_router.post("/admin/fix-null-summaries")
+async def fix_null_summaries():
+    """Corrige notícias cujo resumo foi salvo como o texto 'null'"""
+    result = await db.news.update_many(
+        {"summary": {"$in": ["null", "None", "undefined"]}},
+        {"$set": {"summary": ""}}
+    )
+    return {"status": "success", "fixed": result.modified_count}
+
+@api_router.get("/admin/push-status")
+async def push_status():
+    """Diagnóstico de notificações: quantos dispositivos estão registrados"""
+    total_users = await db.users.count_documents({})
+    with_token = await db.users.count_documents({"push_token": {"$ne": None}})
+    enabled = await db.users.count_documents({"notifications_enabled": {"$ne": False}})
+    tokens_collection = await db.push_tokens.count_documents({})
+    sample = await db.users.find(
+        {"push_token": {"$ne": None}},
+        {"_id": 0, "email": 1, "push_token": 1}
+    ).to_list(length=5)
+    for s in sample:
+        s["push_token"] = (s.get("push_token") or "")[:28] + "..."
+    return {
+        "total_usuarios": total_users,
+        "usuarios_com_dispositivo_registrado": with_token,
+        "usuarios_com_notificacoes_ativadas": enabled,
+        "tokens_na_colecao": tokens_collection,
+        "amostra": sample,
+        "diagnostico": (
+            "NENHUM dispositivo registrado — instale o build novo (v1.5.5) no celular, abra o app e aceite a permissão de notificações."
+            if with_token == 0 else "OK — dispositivos registrados. Teste com /api/admin/send-digest"
+        )
+    }
+
 @api_router.get("/admin/send-digest")
 @api_router.post("/admin/send-digest")
 async def trigger_send_digest():
@@ -4045,7 +4235,8 @@ async def trigger_reclassify_llm(limit: int = 400):
         from ai_service import classify_batch_llm
     
     docs = await db.news.find(
-        {}, {"_id": 1, "title": 1, "summary": 1, "category": 1}
+        {"llm_classified": {"$ne": True}},
+        {"_id": 1, "title": 1, "summary": 1, "category": 1}
     ).sort("published_at", -1).limit(limit).to_list(length=limit)
     
     fixed = 0
