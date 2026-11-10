@@ -1595,6 +1595,112 @@ async def extract_og_image(url: str) -> Optional[str]:
         logger.debug(f"OG image extraction failed for {url[:60]}: {str(e)}")
         return None
 
+
+# Fotos extras para mais variedade no feed (validadas)
+EXTRA_IMAGE_POOLS = {
+    "geral": [
+        "https://images.unsplash.com/photo-1495020689067-958852a7765e?w=800",
+        "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800",
+        "https://images.unsplash.com/photo-1457369804613-52c61a468e7d?w=800",
+        "https://images.unsplash.com/photo-1585241936939-be4099591252?w=800",
+    ],
+    "novelas": [
+        "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=800",
+        "https://images.unsplash.com/photo-1467987506553-8f3916508521?w=800",
+        "https://images.unsplash.com/photo-1593784991095-a205069470b6?w=800",
+        "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=800",
+    ],
+    "series": [
+        "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800",
+        "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800",
+        "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=800",
+        "https://images.unsplash.com/photo-1512070679279-8988d32161be?w=800",
+    ],
+    "politica": [
+        "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?w=800",
+        "https://images.unsplash.com/photo-1486299267070-83823f5448dd?w=800",
+        "https://images.unsplash.com/photo-1569098644584-210bcd375b59?w=800",
+    ],
+    "futebol": [
+        "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800",
+        "https://images.unsplash.com/photo-1551958219-acbc608c6377?w=800",
+        "https://images.unsplash.com/photo-1543326727-cf6c39e8f84c?w=800",
+        "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800",
+    ],
+    "esportes": [
+        "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=800",
+        "https://images.unsplash.com/photo-1521412644187-c49fa049e84d?w=800",
+        "https://images.unsplash.com/photo-1541534741688-6078c6bfb5c5?w=800",
+    ],
+    "economia": [
+        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800",
+        "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=800",
+        "https://images.unsplash.com/photo-1565514020179-026b92b84bb6?w=800",
+    ],
+    "entretenimento": [
+        "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800",
+        "https://images.unsplash.com/photo-1514306191717-452ec28c7814?w=800",
+        "https://images.unsplash.com/photo-1603190287605-e6ade32fa852?w=800",
+    ],
+    "saude": [
+        "https://images.unsplash.com/photo-1584820927498-cfe5211fd8bf?w=800",
+        "https://images.unsplash.com/photo-1532938911079-1b06ac7ceec7?w=800",
+        "https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=800",
+    ],
+    "ciencia": [
+        "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=800",
+        "https://images.unsplash.com/photo-1507413245164-6160d8298b31?w=800",
+        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800",
+    ],
+    "anime": [
+        "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=800",
+        "https://images.unsplash.com/photo-1613376023733-0a73315d9b06?w=800",
+    ],
+    "games": [
+        "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=800",
+        "https://images.unsplash.com/photo-1511512578047-dfb367046420?w=800",
+        "https://images.unsplash.com/photo-1593305841991-05c297ba4575?w=800",
+    ],
+    "musica": [
+        "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800",
+        "https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=800",
+        "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800",
+    ],
+    "gastronomia": [
+        "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800",
+        "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=800",
+    ],
+    "automoveis": [
+        "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=800",
+        "https://images.unsplash.com/photo-1542362567-b07e54358753?w=800",
+    ],
+    "educacao": [
+        "https://images.unsplash.com/photo-1509062522246-3755977927d7?w=800",
+    ],
+    "planeta": [
+        "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=800",
+        "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800",
+    ],
+    "filmes": [
+        "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800",
+        "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=800",
+    ],
+    "famosos": [
+        "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800",
+        "https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800",
+    ],
+    "tecnologia": [
+        "https://images.unsplash.com/photo-1531297484001-80022131f5a1?w=800",
+        "https://images.unsplash.com/photo-1484557052118-f32bd25b45b5?w=800",
+    ],
+    "mundo": [
+        "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=800",
+        "https://images.unsplash.com/photo-1502920917128-1aa500764cbd?w=800",
+    ],
+}
+for _cat, _urls in EXTRA_IMAGE_POOLS.items():
+    CATEGORY_IMAGE_POOLS.setdefault(_cat, []).extend(_urls)
+
 def get_category_fallback_image(category: str, title: str = "") -> str:
     """Get a varied fallback image based on category and title hash"""
     cat = category.lower()
@@ -1848,10 +1954,18 @@ def clean_news_text(text: str) -> str:
     """Limpa texto de notícias removendo HTML, entities e formatação"""
     if not text:
         return ""
-    text = html_module.unescape(text)
+    # Remove entity cortada no FINAL antes do unescape (ex.: "&#82" viraria "R")
+    text = re.sub(r'&#?\w{0,8}$', '', text)
+    # Unescape duplo: feeds costumam codificar duas vezes (&amp;#8217;)
+    text = html_module.unescape(html_module.unescape(text))
     text = re.sub(r'<[^>]+>', '', text)
+    # Remove rodapé de feeds WordPress ("... clube. O post X apareceu primeiro em Y.")
+    # Só remove quando vem DEPOIS de uma frase completa — preserva títulos que começam com "O post"
+    text = re.sub(r'(?<=[.!?…])\s+O post .{0,250}$', '', text)
     text = re.sub(r'\s+', ' ', text)
-    text = re.sub(r'\.{2,}', '.', text)
+    # Preserva reticências; só colapsa pontos duplicados acidentais
+    text = re.sub(r'\.{3,}', '…', text)
+    text = re.sub(r'\.\.', '.', text)
     return text.strip()
 
 def normalize_title(title: str) -> str:
@@ -2174,6 +2288,28 @@ RSS_FEEDS = [
     {"url": "https://g1.globo.com/rss/g1/economia/", "source": "G1 Economia", "category": "economia"},
     {"url": "https://g1.globo.com/rss/g1/ciencia-e-saude/", "source": "G1 Ciência", "category": "ciencia"},
     {"url": "https://feeds.folha.uol.com.br/esporte/rss091.xml", "source": "Folha Esportes", "category": "esportes"},
+    {"url": "https://www.metropoles.com/feed", "source": "Metrópoles", "category": "geral"},
+    {"url": "https://www.cnnbrasil.com.br/feed/", "source": "CNN Brasil", "category": "geral"},
+    {"url": "https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml", "source": "Agência Brasil", "category": "geral"},
+    
+    # Esportes e Futebol
+    {"url": "https://ge.globo.com/rss/ge/", "source": "ge", "category": "futebol"},
+    
+    # Tecnologia
+    {"url": "https://olhardigital.com.br/feed/", "source": "Olhar Digital", "category": "tecnologia"},
+    {"url": "https://canaltech.com.br/rss/", "source": "Canaltech", "category": "tecnologia"},
+    
+    # Música
+    {"url": "https://rollingstone.com.br/feed/", "source": "Rolling Stone Brasil", "category": "musica"},
+    {"url": "https://www.tenhomaisdiscosqueamigos.com/feed/", "source": "TMDQA", "category": "musica"},
+    
+    # Automóveis
+    {"url": "https://autoesporte.globo.com/rss/autoesporte/", "source": "Autoesporte", "category": "automoveis"},
+    
+    # Ciência, Educação e Celebridades
+    {"url": "https://super.abril.com.br/feed/", "source": "Superinteressante", "category": "ciencia"},
+    {"url": "https://guiadoestudante.abril.com.br/feed/", "source": "Guia do Estudante", "category": "educacao"},
+    {"url": "https://revistaquem.globo.com/rss/quem/", "source": "Quem", "category": "famosos"},
     
     # Finanças, Bolsa, Investimentos
     {"url": "https://www.infomoney.com.br/feed/", "source": "InfoMoney", "category": "financas"},
@@ -2212,6 +2348,11 @@ RSS_FEEDS = [
     {"url": "https://www.tecmundo.com.br/rss", "source": "TecMundo", "category": "games"},
     {"url": "https://adrenaline.com.br/rss", "source": "Adrenaline", "category": "games"},
     {"url": "https://www.voxel.com.br/feed/", "source": "Voxel", "category": "games"},
+    {"url": "https://flowgames.gg/feed/", "source": "Flow Games", "category": "games"},
+    {"url": "https://br.ign.com/feed.xml", "source": "IGN Brasil", "category": "games"},
+    {"url": "https://www.gamevicio.com/rss/noticias.xml", "source": "GameVicio", "category": "games"},
+    {"url": "https://canaltech.com.br/rss/games/", "source": "Canaltech Games", "category": "games"},
+    {"url": "https://meups.com.br/feed/", "source": "MeuPlayStation", "category": "games"},
     
     # Notícias Mundiais / Internacionais
     {"url": "https://g1.globo.com/rss/g1/mundo/", "source": "G1 Mundo", "category": "mundo"},
@@ -2609,9 +2750,12 @@ async def fetch_news_from_rss():
                         if media_content is not None:
                             image_url = media_content.get("url", "")
                         
-                        summary = re.sub(r'<[^>]+>', '', desc_text or "")
+                        # Limpa HTML, entities (&quot; &amp; etc.) e espaços — evita erros de escrita
+                        title_text = clean_news_text(title_text)
+                        summary = clean_news_text(desc_text or "")
                         if len(summary) > 200:
-                            summary = summary[:197] + "..."
+                            # Corta no fim da última palavra inteira, nunca no meio
+                            summary = summary[:200].rsplit(' ', 1)[0].rstrip(',;:—-') + '…'
                         
                         news_item = News(
                             title=title_text,
@@ -2634,25 +2778,31 @@ async def fetch_news_from_rss():
     
     return all_news
 
+_fetch_lock = asyncio.Lock()
+
 async def fetch_all_news_sources(category: str = None):
-    """Fetch news from all sources concurrently"""
-    tasks = [
-        fetch_news_from_newsapi(category),
-        fetch_news_from_gnews(category),
-    ]
-    
-    # Only fetch RSS for general or if no category
-    if not category:
-        tasks.append(fetch_news_from_rss())
-    
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    
-    all_news = []
-    for result in results:
-        if isinstance(result, list):
-            all_news.extend(result)
-    
-    return all_news
+    """Fetch news from all sources concurrently (nunca roda em paralelo — evita duplicatas)"""
+    if _fetch_lock.locked():
+        logger.info("⏭️ Fetch já em andamento — ignorando chamada concorrente")
+        return []
+    async with _fetch_lock:
+        tasks = [
+            fetch_news_from_newsapi(category),
+            fetch_news_from_gnews(category),
+        ]
+        
+        # Only fetch RSS for general or if no category
+        if not category:
+            tasks.append(fetch_news_from_rss())
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        all_news = []
+        for result in results:
+            if isinstance(result, list):
+                all_news.extend(result)
+        
+        return all_news
 
 # ==================== NEWS ENDPOINTS ====================
 
@@ -3458,7 +3608,7 @@ async def send_test_notification(user: User = Depends(get_current_user)):
         title="🧪 Teste de Notificação",
         body="Esta é uma notificação de teste do LoopNews!",
         data={"type": "test", "timestamp": datetime.now(timezone.utc).isoformat()},
-        channel_id="general-news"
+        channel_id="general-news-v2"
     )
     
     return {"message": "Test notification sent", "result": result}
@@ -3474,7 +3624,7 @@ async def send_test_breaking_notification(user: User = Depends(get_current_user)
         title="🚨 URGENTE: Teste de Breaking News",
         body="Esta é uma notificação de teste de notícia urgente! Alta prioridade.",
         data={"type": "urgent_news", "news_id": "test", "urgency_score": 100},
-        channel_id="breaking-news"
+        channel_id="breaking-news-v2"
     )
     
     return {"message": "Breaking news test notification sent", "result": result}
@@ -3723,18 +3873,36 @@ async def send_daily_digest():
         categories_text = ", ".join(top_categories) if top_categories else "várias categorias"
         
         # Pick the top headline (trending/most recent) to feature in the push
-        top_news = await db.news.find_one(
+        # Evita repetir a mesma manchete do último digest
+        last_cfg = await db.app_config.find_one({"config_type": "last_digest"}) or {}
+        last_news_id = last_cfg.get("news_id")
+        candidates = await db.news.find(
             {"published_at": {"$gte": yesterday}, "title": {"$ne": None}},
             {"news_id": 1, "title": 1, "category": 1},
             sort=[("is_trending", -1), ("credibility_score", -1), ("published_at", -1)]
-        )
+        ).to_list(length=3)
+        top_news = None
+        for cand in candidates:
+            if cand.get("news_id") != last_news_id:
+                top_news = cand
+                break
+        if top_news is None and candidates:
+            top_news = candidates[0]
+        if top_news:
+            await db.app_config.update_one(
+                {"config_type": "last_digest"},
+                {"$set": {"news_id": top_news.get("news_id"), "updated_at": datetime.now(timezone.utc)}},
+                upsert=True
+            )
         
         # Greeting based on Brazil time (UTC-3)
         hour_brt = (datetime.now(timezone.utc) - timedelta(hours=3)).hour
-        if hour_brt < 12:
+        if hour_brt < 11:
             push_title = "☀️ Bom dia! Suas notícias chegaram"
+        elif hour_brt < 17:
+            push_title = "🍽️ As notícias deste meio-dia no LoopNews"
         else:
-            push_title = "🌆 As notícias desta tarde no LoopNews"
+            push_title = "🌙 As principais notícias desta noite"
         
         if top_news and top_news.get("title"):
             push_body = f"{top_news['title'][:90]} — e mais {max(total_news - 1, 0)} notícias te esperando!"
@@ -3850,7 +4018,7 @@ def is_urgent_news(title: str, summary: str) -> bool:
     """Check if news is urgent — threshold score of 30+"""
     return get_urgency_score(title, summary) >= 30
 
-async def send_expo_push_notification(push_tokens: list, title: str, body: str, data: dict = None, channel_id: str = "general-news"):
+async def send_expo_push_notification(push_tokens: list, title: str, body: str, data: dict = None, channel_id: str = "general-news-v2"):
     """Send push notifications via Expo Push API (supports FCM on Android, APNs on iOS)"""
     if not push_tokens:
         return {"success": 0, "failed": 0}
@@ -3865,7 +4033,7 @@ async def send_expo_push_notification(push_tokens: list, title: str, body: str, 
             "sound": "default",
             "title": title,
             "body": body,
-            "priority": "high" if channel_id == "breaking-news" else "default",
+            "priority": "high",  # entrega imediata mesmo com o celular em economia de energia
             "channelId": channel_id,
         }
         
@@ -3873,7 +4041,7 @@ async def send_expo_push_notification(push_tokens: list, title: str, body: str, 
             message["data"] = data
         
         # Breaking news: enable critical alert style
-        if channel_id == "breaking-news":
+        if channel_id == "breaking-news-v2":
             message["badge"] = 1
             message["_contentAvailable"] = True
         
@@ -3932,13 +4100,26 @@ async def notify_users_new_news(news_count: int):
         
         push_tokens = [u["push_token"] for u in users if u.get("push_token")]
         
+        # Manchete mais recente para deixar a notificação rica (estilo apps de notícia)
+        latest = await db.news.find_one(
+            {"title": {"$ne": None}},
+            {"title": 1, "news_id": 1},
+            sort=[("published_at", -1)]
+        )
+        if latest and latest.get("title"):
+            push_title = "📰 " + latest["title"][:80]
+            push_body = f"E mais {max(news_count - 1, 0)} notícias novas te esperando no LoopNews!"
+        else:
+            push_title = "📰 Novas notícias disponíveis!"
+            push_body = f"{news_count} novas notícias acabaram de chegar. Confira agora!"
+        
         if push_tokens:
             await send_expo_push_notification(
                 push_tokens=push_tokens,
-                title="📰 Novas notícias disponíveis!",
-                body=f"{news_count} novas notícias acabaram de chegar. Confira agora!",
+                title=push_title,
+                body=push_body,
                 data={"type": "new_news", "count": news_count},
-                channel_id="general-news"
+                channel_id="general-news-v2"
             )
         
         # Create in-app notifications
@@ -3946,8 +4127,8 @@ async def notify_users_new_news(news_count: int):
             notification = {
                 "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
                 "user_id": user["user_id"],
-                "title": "📰 Novas notícias disponíveis!",
-                "body": f"{news_count} novas notícias acabaram de chegar. Confira agora!",
+                "title": push_title,
+                "body": push_body,
                 "data": {"type": "new_news", "count": news_count},
                 "read": False,
                 "created_at": datetime.now(timezone.utc)
@@ -3994,7 +4175,7 @@ async def notify_urgent_news(news_item: dict):
                     "category": news_category,
                     "urgency_score": urgency_score,
                 },
-                channel_id="breaking-news"
+                channel_id="breaking-news-v2"
             )
             
             # Create in-app notifications
@@ -4190,6 +4371,33 @@ async def fix_null_summaries():
         {"$set": {"summary": ""}}
     )
     return {"status": "success", "fixed": result.modified_count}
+
+@api_router.get("/admin/clean-text")
+@api_router.post("/admin/clean-text")
+async def clean_news_texts():
+    """Corrige erros de escrita em notícias antigas: entities HTML (&quot; &amp;), tags e espaços duplicados"""
+    docs = await db.news.find(
+        {"$or": [
+            {"title": {"$regex": "&quot;|&amp;|&#|&gt;|&lt;|&nbsp;|<[a-zA-Z]"}},
+            {"summary": {"$regex": "&quot;|&amp;|&#|&gt;|&lt;|&nbsp;|<[a-zA-Z]|O post "}},
+        ]},
+        {"title": 1, "summary": 1}
+    ).to_list(length=3000)
+    from pymongo import UpdateOne
+    ops = []
+    for doc in docs:
+        ops.append(UpdateOne(
+            {"_id": doc["_id"]},
+            {"$set": {
+                "title": clean_news_text(doc.get("title") or ""),
+                "summary": clean_news_text(doc.get("summary") or ""),
+            }}
+        ))
+    fixed = 0
+    if ops:
+        result = await db.news.bulk_write(ops, ordered=False)
+        fixed = result.modified_count
+    return {"status": "success", "fixed": fixed}
 
 @api_router.get("/admin/push-status")
 async def push_status():
@@ -4429,21 +4637,30 @@ def setup_scheduler():
         replace_existing=True
     )
     
-    # Job 4: Daily digest at 11am UTC (8am Brazil time)
+    # Job 4: Morning digest at 10am UTC (7am Brazil)
     scheduler.add_job(
         send_daily_digest,
-        CronTrigger(hour=11, minute=0),
+        CronTrigger(hour=10, minute=0),
         id="daily_digest",
-        name="Daily News Digest (8am Brazil)",
+        name="Morning News Digest (7am Brazil)",
         replace_existing=True
     )
     
-    # Job 5: Evening digest at 21pm UTC (6pm Brazil time)
+    # Job 4b: Lunch digest at 15pm UTC (12pm Brazil)
     scheduler.add_job(
         send_daily_digest,
-        CronTrigger(hour=21, minute=0),
+        CronTrigger(hour=15, minute=0),
+        id="lunch_digest",
+        name="Lunch News Digest (12pm Brazil)",
+        replace_existing=True
+    )
+    
+    # Job 5: Evening digest at 22pm UTC (7pm Brazil)
+    scheduler.add_job(
+        send_daily_digest,
+        CronTrigger(hour=22, minute=0),
         id="evening_digest",
-        name="Evening News Digest (6pm Brazil)",
+        name="Evening News Digest (7pm Brazil)",
         replace_existing=True
     )
     
@@ -4475,11 +4692,51 @@ def setup_scheduler():
 
 # ==================== APP LIFESPAN ====================
 
+async def remove_duplicate_news_by_url() -> int:
+    """Remove notícias duplicadas (mesma source_url), mantendo a mais antiga"""
+    pipeline = [
+        {"$match": {"source_url": {"$type": "string", "$gt": ""}}},
+        {"$group": {"_id": "$source_url", "ids": {"$push": "$_id"}, "count": {"$sum": 1}}},
+        {"$match": {"count": {"$gt": 1}}},
+    ]
+    removed = 0
+    async for group in db.news.aggregate(pipeline):
+        extra_ids = group["ids"][1:]
+        if extra_ids:
+            result = await db.news.delete_many({"_id": {"$in": extra_ids}})
+            removed += result.deleted_count
+    return removed
+
+async def ensure_indexes():
+    """Cria índices do MongoDB: performance + índice ÚNICO em source_url (bloqueia duplicatas)"""
+    try:
+        await db.news.create_index("news_id")
+        await db.news.create_index([("published_at", -1)])
+        await db.news.create_index("category")
+        await db.news.create_index([("fetched_at", -1)])
+        unique_spec = dict(
+            unique=True,
+            partialFilterExpression={"source_url": {"$type": "string", "$gt": ""}},
+            name="source_url_unique",
+        )
+        try:
+            await db.news.create_index("source_url", **unique_spec)
+        except Exception:
+            removed = await remove_duplicate_news_by_url()
+            logger.info(f"🧹 Removidas {removed} notícias duplicadas antes de criar índice único")
+            await db.news.create_index("source_url", **unique_spec)
+        logger.info("✅ Índices do MongoDB garantidos (source_url único)")
+    except Exception as e:
+        logger.error(f"Erro ao criar índices: {str(e)}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan - startup and shutdown"""
     # Startup
     logger.info("🚀 Starting LoopNews API...")
+    
+    # Índices (dedupe + unique) antes de qualquer fetch
+    await ensure_indexes()
     
     # Setup and start scheduler
     setup_scheduler()
