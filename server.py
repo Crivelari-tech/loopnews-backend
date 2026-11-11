@@ -4113,14 +4113,8 @@ async def notify_users_new_news(news_count: int):
             push_title = "📰 Novas notícias disponíveis!"
             push_body = f"{news_count} novas notícias acabaram de chegar. Confira agora!"
         
-        if push_tokens:
-            await send_expo_push_notification(
-                push_tokens=push_tokens,
-                title=push_title,
-                body=push_body,
-                data={"type": "new_news", "count": news_count},
-                channel_id="general-news-v2"
-            )
+        # PUSH REMOVIDO: avisos de "notícias novas" ficam APENAS dentro do app.
+        # Push na barra do celular = somente os digests das 7h/12h/19h (+ urgências raras).
         
         # Create in-app notifications
         for user in users:
@@ -4153,6 +4147,24 @@ async def notify_urgent_news(news_item: dict):
         urgency_score = get_urgency_score(
             news_item.get("title", ""),
             news_item.get("summary", "")
+        )
+        
+        # ANTI-SPAM: push urgente só para urgência MÁXIMA (60+) e no máximo 1 a cada 3 horas
+        if urgency_score < 60:
+            return
+        now = datetime.now(timezone.utc)
+        cfg = await db.app_config.find_one({"config_type": "last_urgent_push"}) or {}
+        last = cfg.get("at")
+        if last:
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            if (now - last).total_seconds() < 3 * 3600:
+                logger.info("⏭️ Push urgente ignorado (intervalo mínimo de 3h)")
+                return
+        await db.app_config.update_one(
+            {"config_type": "last_urgent_push"},
+            {"$set": {"at": now}},
+            upsert=True
         )
         
         target_users = []
