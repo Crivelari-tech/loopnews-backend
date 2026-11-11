@@ -4372,14 +4372,71 @@ async def fix_null_summaries():
     )
     return {"status": "success", "fixed": result.modified_count}
 
+def _ver_tuple(s: str):
+    try:
+        return tuple(int(x) for x in s.split("."))
+    except Exception:
+        return (0,)
+
 @api_router.get("/app/version")
-async def get_app_version():
-    """Versão mínima exigida do app — usada pela tela de atualização obrigatória"""
+async def get_app_version(v: str = None):
+    """Versão mínima exigida do app — usada pela tela de atualização obrigatória.
+    O app informa a própria versão (?v=1.5.7) para o monitor de adoção automático."""
+    if v and re.match(r'^\d+\.\d+(\.\d+)?$', v):
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        await db.version_pings.update_one(
+            {"version": v, "date": today},
+            {"$inc": {"count": 1}},
+            upsert=True
+        )
     cfg = await db.app_config.find_one({"config_type": "app_version"}) or {}
     return {
         "required_version": cfg.get("required_version", "0.0.0"),
         "store_url": "https://play.google.com/store/apps/details?id=com.loopnews.app",
         "message": cfg.get("message") or "Uma nova versão do LoopNews está disponível com melhorias e correções. Atualize para continuar usando o app!",
+    }
+
+async def auto_version_check():
+    """AUTOMÁTICO: quando uma versão nova atinge 20%+ dos acessos (últimas 48h, mínimo 20 aberturas),
+    significa que a Play Store já liberou — então exige a atualização para o restante sozinho."""
+    try:
+        now = datetime.now(timezone.utc)
+        days = [(now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(2)]
+        rows = await db.version_pings.find({"date": {"$in": days}}).to_list(length=200)
+        totals = {}
+        for r in rows:
+            totals[r["version"]] = totals.get(r["version"], 0) + r.get("count", 0)
+        total = sum(totals.values())
+        if total < 20 or not totals:
+            return
+        newest = max(totals, key=_ver_tuple)
+        share = totals[newest] / total
+        cfg = await db.app_config.find_one({"config_type": "app_version"}) or {}
+        current = cfg.get("required_version", "0.0.0")
+        if _ver_tuple(newest) > _ver_tuple(current) and share >= 0.20:
+            await db.app_config.update_one(
+                {"config_type": "app_version"},
+                {"$set": {"required_version": newest, "updated_at": now, "auto_activated": True}},
+                upsert=True
+            )
+            logger.info(f"🔄 Atualização obrigatória ATIVADA automaticamente: {newest} ({share:.0%} de adoção)")
+    except Exception as e:
+        logger.error(f"auto_version_check: {str(e)}")
+
+@api_router.get("/admin/version-stats")
+async def version_stats():
+    """Adoção de versões nas últimas 48h (admin)"""
+    now = datetime.now(timezone.utc)
+    days = [(now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(2)]
+    rows = await db.version_pings.find({"date": {"$in": days}}).to_list(length=200)
+    totals = {}
+    for r in rows:
+        totals[r["version"]] = totals.get(r["version"], 0) + r.get("count", 0)
+    cfg = await db.app_config.find_one({"config_type": "app_version"}) or {}
+    return {
+        "required_version": cfg.get("required_version", "0.0.0"),
+        "auto_activated": cfg.get("auto_activated", False),
+        "adocao_48h": dict(sorted(totals.items(), key=lambda kv: _ver_tuple(kv[0]), reverse=True)),
     }
 
 @api_router.get("/admin/set-version")
@@ -4658,6 +4715,15 @@ def setup_scheduler():
         CronTrigger(hour=3, minute=0),
         id="news_cleanup_daily",
         name="Daily News Cleanup",
+        replace_existing=True
+    )
+    
+    # Job 6: Checagem automática de versão (ativa atualização obrigatória sozinho)
+    scheduler.add_job(
+        auto_version_check,
+        CronTrigger(minute=30),
+        id="auto_version_check",
+        name="Auto Version Check (hourly)",
         replace_existing=True
     )
     
