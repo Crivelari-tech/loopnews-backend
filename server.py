@@ -4372,6 +4372,30 @@ async def fix_null_summaries():
     )
     return {"status": "success", "fixed": result.modified_count}
 
+@api_router.get("/app/version")
+async def get_app_version():
+    """Versão mínima exigida do app — usada pela tela de atualização obrigatória"""
+    cfg = await db.app_config.find_one({"config_type": "app_version"}) or {}
+    return {
+        "required_version": cfg.get("required_version", "0.0.0"),
+        "store_url": "https://play.google.com/store/apps/details?id=com.loopnews.app",
+        "message": cfg.get("message") or "Uma nova versão do LoopNews está disponível com melhorias e correções. Atualize para continuar usando o app!",
+    }
+
+@api_router.get("/admin/set-version")
+@api_router.post("/admin/set-version")
+async def set_app_version(version: str, message: str = None):
+    """Define a versão mínima obrigatória (admin). Quem tiver versão menor é obrigado a atualizar."""
+    if not re.match(r'^\d+\.\d+(\.\d+)?$', version):
+        raise HTTPException(status_code=400, detail="Versão inválida. Use o formato 1.5.7")
+    update = {"required_version": version, "updated_at": datetime.now(timezone.utc)}
+    if message:
+        update["message"] = message
+    await db.app_config.update_one(
+        {"config_type": "app_version"}, {"$set": update}, upsert=True
+    )
+    return {"status": "success", "required_version": version}
+
 @api_router.get("/admin/clean-text")
 @api_router.post("/admin/clean-text")
 async def clean_news_texts():
