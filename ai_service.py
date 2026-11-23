@@ -243,3 +243,41 @@ async def proofread_news(title: str, summary: str = "") -> Optional[dict]:
     except Exception as e:
         logger.debug(f"proofread_news skipped: {str(e)}")
         return None
+
+
+async def generate_long_summary(title: str, short_summary: str, article_text: str = "") -> Optional[str]:
+    """Gera um resumo longo (120-200 palavras, 2-3 parágrafos) usando SOMENTE o material fornecido.
+    Se o material for curto, o resumo sai menor (sem inventar). Retorna texto ou None."""
+    if not EMERGENT_LLM_KEY or not title:
+        return None
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"longsum_{uuid.uuid4().hex[:8]}",
+            system_message=(
+                "Você é um redator de notícias brasileiro. Escreva um resumo em português do Brasil "
+                "com 120 a 200 palavras, dividido em 2 ou 3 parágrafos curtos separados por uma linha em branco. "
+                "REGRAS OBRIGATÓRIAS: use SOMENTE informações presentes no material fornecido; "
+                "NUNCA invente dados, números, datas, nomes ou citações que não estejam no material; "
+                "escreva com palavras próprias, sem copiar frases inteiras; "
+                "se o material for curto demais para 120 palavras, faça um resumo menor e honesto em vez de inventar. "
+                "Preserve nomes próprios, siglas, jogos, filmes e times exatamente como estão. "
+                "Português impecável (ortografia, acentuação, pontuação e concordância). "
+                "Responda APENAS com o texto do resumo, sem título, sem markdown e sem comentários."
+            ),
+        ).with_model("openai", "gpt-4.1-mini")
+        material = f"TÍTULO: {title}\n\nRESUMO: {short_summary or ''}"
+        if article_text:
+            material += f"\n\nTEXTO DA MATÉRIA ORIGINAL:\n{article_text[:4000]}"
+        response = await chat.send_message(UserMessage(text=material))
+        text = (response or "").strip()
+        if text.startswith("```"):
+            text = text.strip("`").strip()
+        text = re.sub(r'^["\']+|["\']+$', '', text).strip()
+        if len(text) < 80:
+            return None
+        return text
+    except Exception as e:
+        logger.error(f"generate_long_summary error: {str(e)}")
+        return None

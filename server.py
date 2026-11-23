@@ -66,6 +66,7 @@ class User(BaseModel):
     picture: Optional[str] = None
     interests: List[str] = []
     onboarding_completed: bool = False
+    notification_prompt_shown: bool = False
     push_token: Optional[str] = None
     notifications_enabled: bool = True
     last_news_check: Optional[datetime] = None  # Track when user last checked news
@@ -513,6 +514,15 @@ async def logout(request: Request, response: Response):
     return {"message": "Logged out successfully"}
 
 # ==================== USER ENDPOINTS ====================
+
+@api_router.post("/users/notification-prompt-shown")
+async def mark_notification_prompt_shown(user: User = Depends(get_current_user)):
+    """Marca que a tela 'Fique por dentro!' já foi mostrada — nunca mais aparece para esta conta"""
+    await db.users.update_one(
+        {"user_id": user.user_id},
+        {"$set": {"notification_prompt_shown": True}}
+    )
+    return {"status": "ok"}
 
 @api_router.put("/users/interests")
 async def update_interests(
@@ -4656,6 +4666,44 @@ async def fix_broken_images(days: int = 7):
                 fixed += 1
     await asyncio.gather(*[check(d) for d in docs])
     return {"status": "success", "checked": len(docs), "fixed": fixed}
+
+@api_router.get("/news/{news_id}/long-summary")
+async def get_long_summary(news_id: str):
+    """Resumo longo (120-200 palavras) do painel Resumo. Gera 1x e guarda em cache no banco."""
+    doc = await db.news.find_one({"news_id": news_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Notícia não encontrada")
+    if doc.get("ai_summary_long"):
+        return {"long_summary": doc["ai_summary_long"], "cached": True}
+    # Busca o texto da matéria original (best-effort) para dar mais material real à IA
+    article_text = ""
+    try:
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (Linux; Android 13) LoopNews/1.0"}) as hc:
+            r = await hc.get(doc.get("source_url", ""))
+            if r.status_code == 200:
+                raw = re.sub(r'<script[\s\S]*?</script>|<style[\s\S]*?</style>', ' ', r.text)
+                paras = re.findall(r'<p[^>]*>([\s\S]*?)</p>', raw)
+                article_text = clean_news_text(' '.join(paras))[:4000]
+    except Exception:
+        pass
+    try:
+        try:
+            from services.ai_service import generate_long_summary
+        except ImportError:
+            from ai_service import generate_long_summary
+        long_sum = await generate_long_summary(
+            doc.get("title", ""),
+            doc.get("ai_summary") or doc.get("summary", ""),
+            article_text,
+        )
+    except Exception as e:
+        logger.error(f"long-summary error: {str(e)}")
+        long_sum = None
+    if not long_sum:
+        # Fallback honesto: devolve o resumo curto existente (sem cachear como longo)
+        return {"long_summary": doc.get("ai_summary") or doc.get("summary", ""), "cached": False}
+    await db.news.update_one({"news_id": news_id}, {"$set": {"ai_summary_long": long_sum}})
+    return {"long_summary": long_sum, "cached": False}
 
 @api_router.get("/admin/push-status")
 async def push_status():

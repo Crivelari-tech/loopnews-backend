@@ -6,20 +6,20 @@ import html as html_lib
 
 # ==================== 15 CATEGORIAS ====================
 CATEGORIES_15 = [
-    {"id": "economia", "name": "Economia e Finanças", "icon": "chart-line"},
+    {"id": "economia", "name": "Economia", "icon": "chart-line"},
     {"id": "tecnologia", "name": "Tecnologia", "icon": "laptop"},
     {"id": "games", "name": "Games", "icon": "gamepad"},
     {"id": "esportes", "name": "Esportes", "icon": "basketball"},
     {"id": "futebol", "name": "Futebol", "icon": "football"},
     {"id": "entretenimento", "name": "Entretenimento", "icon": "film"},
-    {"id": "musica", "name": "Músicas", "icon": "musical-notes"},
+    {"id": "musica", "name": "Música", "icon": "musical-notes"},
     {"id": "celebridades", "name": "Celebridades", "icon": "star"},
     {"id": "gastronomia", "name": "Gastronomia", "icon": "restaurant"},
     {"id": "automoveis", "name": "Automóveis", "icon": "car-sport"},
     {"id": "educacao", "name": "Educação", "icon": "school"},
-    {"id": "planeta", "name": "Planeta e Clima", "icon": "leaf"},
-    {"id": "ciencia_saude", "name": "Ciência, Espaço e Saúde", "icon": "flask"},
-    {"id": "politica_mundo", "name": "Política e Mundo", "icon": "globe"},
+    {"id": "planeta", "name": "Planeta", "icon": "leaf"},
+    {"id": "ciencia_saude", "name": "Ciência e Saúde", "icon": "flask"},
+    {"id": "politica_mundo", "name": "Política Mundial", "icon": "globe"},
     {"id": "seguranca", "name": "Segurança", "icon": "shield-checkmark"},
 ]
 
