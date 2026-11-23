@@ -207,3 +207,39 @@ CONTEÚDO: {truncated}"""
     except Exception as e:
         logger.error(f"AI summary generation error: {str(e)}")
         return None
+
+
+async def proofread_news(title: str, summary: str = "") -> Optional[dict]:
+    """Revisa ortografia/acentuação/pontuação em pt-BR de título e resumo.
+    Preserva nomes próprios, siglas, jogos, filmes e times. Retorna {'title','summary'} ou None."""
+    if not EMERGENT_LLM_KEY or not title:
+        return None
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        import json as _json
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"proofread_{uuid.uuid4().hex[:8]}",
+            system_message=(
+                "Você é um revisor profissional de português do Brasil. Corrija APENAS erros de "
+                "ortografia, acentuação, pontuação e concordância. NÃO reescreva, NÃO resuma, NÃO "
+                "mude o sentido. PRESERVE nomes próprios, siglas, nomes de jogos, filmes, times e "
+                "marcas exatamente como estão (ex.: GTA 6, Sabalenka, ge, UOL). Se o texto já "
+                "estiver correto, devolva-o idêntico. Responda SOMENTE com JSON válido no formato "
+                '{"title": "...", "summary": "..."} sem markdown.'
+            ),
+        ).with_model("openai", "gpt-4.1-mini")
+        prompt = _json.dumps({"title": title[:300], "summary": (summary or "")[:500]}, ensure_ascii=False)
+        response = await chat.send_message(UserMessage(text=prompt))
+        text = (response or "").strip()
+        if text.startswith("```"):
+            text = text.strip("`").replace("json", "", 1).strip()
+        data = _json.loads(text)
+        new_title = (data.get("title") or "").strip()
+        new_summary = (data.get("summary") or "").strip()
+        if not new_title or len(new_title) < max(5, len(title) * 0.5):
+            return None
+        return {"title": new_title, "summary": new_summary or summary}
+    except Exception as e:
+        logger.debug(f"proofread_news skipped: {str(e)}")
+        return None

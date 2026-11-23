@@ -187,20 +187,26 @@ KW = {
 # Exclusões: se o texto contém estes termos, subtrai pontos da categoria
 EXCLUSIONS = {
     "seguranca": ["guerra", "israel", "hamas", "ucrânia", "ucrania", "rússia", "russia", "gaza",
-                  "bombardeio", "míssil", "missil", "exército", "tropas", "cessar-fogo"],
+                  "bombardeio", "míssil", "missil", "exército", "tropas", "cessar-fogo",
+                  # Ficção/entretenimento NÃO é crime real (GTA, filmes, séries, novelas)
+                  "gta", "gameplay", "playstation", "xbox", "nintendo", "videogame", "video game",
+                  "no jogo", "do jogo", "trailer", "série ", "serie ", "filme", "novela",
+                  "personagem", "netflix", "temporada", "enredo", "ator ", "atriz "],
     "futebol": ["basquete", "vôlei", "volei", "fórmula 1", "formula 1", "tênis ", "ufc", "mma",
                 "presidente da república", "presidente lula", "senado", "câmara dos deputados",
                 "stf", "eleição", "eleicao", "ministro da"],
     "esportes": ["futebol", "brasileirão", "brasileirao", "flamengo", "corinthians", "palmeiras",
                  "libertadores", "gol ", "presidente da república", "senado", "stf",
                  "câmara dos deputados", "eleição", "eleicao"],
-    "economia": ["homicídio", "homicidio", "preso", "delegacia", "terremoto", "furacão"],
+    "economia": ["homicídio", "homicidio", "preso", "delegacia", "terremoto", "furacão",
+                 "gta", "gameplay", "no jogo", "do jogo", "trailer", "novela", "temporada"],
     "celebridades": ["playstation", "xbox", "nintendo", "gameplay", "assassinato", "homicídio",
                      "delegacia", "preso por"],
+    "games": ["bilheteria", "oscar", "cinema", "estreia nos cinemas", "crítica do filme"],
     "automoveis": ["fórmula 1", "formula 1", "f1 ", "grande prêmio", "gp de",
                    "morre", "morrem", "morto", "morta", "mortos", "mata ", "atropela",
                    "capota", "colisão", "colisao", "acidente", "vítima", "vitima",
-                   "baleado", "preso", "delegacia"],
+                   "baleado", "preso", "delegacia", "gta", "no jogo"],
     "ciencia_saude": ["lesão muscular", "desfalque", "jogador", "atleta"],
 }
 
@@ -265,7 +271,9 @@ def classify(title: str, summary: str = "", source_name: str = "", current: str 
         for w in EXCLUSIONS.get(cat, []):
             if w in full:
                 score -= 4
-        if score > 0:
+        # Confiança mínima: assunto principal precisa de sinal forte (>= 3 pontos),
+        # evita categoria errada por palavra solta (ex.: "milhões" virando Economia)
+        if score >= 3:
             scores[cat] = score
 
     if not scores:

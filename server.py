@@ -1959,6 +1959,14 @@ def clean_news_text(text: str) -> str:
     # Unescape duplo: feeds costumam codificar duas vezes (&amp;#8217;)
     text = html_module.unescape(html_module.unescape(text))
     text = re.sub(r'<[^>]+>', '', text)
+    # Remove resíduos de atributos HTML vazados (ex.: " data-large-file="https://...wp-content/...")
+    text = re.sub(r'"?\s*[a-zA-Z][a-zA-Z0-9-]*="[^"]*"', ' ', text)
+    text = re.sub(r"\s*[a-zA-Z][a-zA-Z0-9-]*='[^']*'", ' ', text)
+    # Remove URLs técnicas soltas (wp-content e arquivos de imagem)
+    text = re.sub(r'https?://\S*(?:wp-content|wp-includes)\S*', ' ', text)
+    text = re.sub(r'https?://\S+\.(?:jpg|jpeg|png|gif|webp|svg)\S*', ' ', text, flags=re.IGNORECASE)
+    # Restos de markup quebrado (/> ou "> soltos)
+    text = re.sub(r'\s*/?\s*>\s', ' ', text)
     # Remove rodapé de feeds WordPress ("... clube. O post X apareceu primeiro em Y.")
     # Só remove quando vem DEPOIS de uma frase completa — preserva títulos que começam com "O post"
     text = re.sub(r'(?<=[.!?…])\s+O post .{0,250}$', '', text)
@@ -2113,6 +2121,19 @@ async def process_and_save_news(news_item: News, news_list: list) -> bool:
                 news_data["ai_summary"] = ai_summary
         except Exception as e:
             logger.debug(f"AI summary skipped: {str(e)}")
+        
+        # Revisão ortográfica pt-BR automática (preserva nomes próprios/siglas/jogos)
+        try:
+            try:
+                from services.ai_service import proofread_news
+            except ImportError:
+                from ai_service import proofread_news
+            fixed = await proofread_news(news_data.get("title", ""), news_data.get("summary", ""))
+            if fixed:
+                news_data["title"] = fixed["title"]
+                news_data["summary"] = fixed["summary"]
+        except Exception as e:
+            logger.debug(f"proofread skipped: {str(e)}")
         
         # Check if it's urgent news and send notification
         if is_urgent_news(news_item.title, news_item.summary):
@@ -3916,6 +3937,8 @@ async def send_daily_digest():
         )
         users = await users_cursor.to_list(length=1000)
         
+        # Limite diário de 5 pushes por usuário
+        users = await allow_push_for_users(users)
         push_tokens = [u["push_token"] for u in users if u.get("push_token")]
         
         if push_tokens:
@@ -4134,6 +4157,74 @@ async def notify_users_new_news(news_count: int):
     except Exception as e:
         logger.error(f"Error sending notifications: {str(e)}")
 
+async def allow_push_for_users(users: list, limit: int = 5) -> list:
+    """LIMITE DIÁRIO: máximo 5 notificações push por usuário por dia."""
+    from pymongo import ReturnDocument
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    allowed = []
+    for u in users:
+        if not u.get("user_id"):
+            continue
+        doc = await db.push_counters.find_one_and_update(
+            {"user_id": u["user_id"], "date": today},
+            {"$inc": {"count": 1}},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        if (doc or {}).get("count", 1) <= limit:
+            allowed.append(u)
+    return allowed
+
+async def send_daily_summary():
+    """19h: push personalizado 'Resumo do Dia' — as 2 notícias mais relevantes de cada interesse"""
+    try:
+        since = datetime.now(timezone.utc) - timedelta(hours=24)
+        users = await db.users.find(
+            {"push_token": {"$ne": None}, "notifications_enabled": True},
+            {"push_token": 1, "user_id": 1, "interests": 1}
+        ).to_list(length=1000)
+        users = await allow_push_for_users(users)
+        cache = {}
+        async def top2(cat):
+            if cat not in cache:
+                cache[cat] = await db.news.find(
+                    {"published_at": {"$gte": since}, "category": cat, "title": {"$ne": None}},
+                    {"news_id": 1, "title": 1},
+                    sort=[("is_trending", -1), ("credibility_score", -1), ("published_at", -1)]
+                ).to_list(length=2)
+            return cache[cat]
+        sent = 0
+        for u in users:
+            token = u.get("push_token")
+            interests = (u.get("interests") or [])[:6]
+            if not token or not interests:
+                continue
+            picks = []
+            for cat in interests:
+                picks.extend(await top2(cat))
+            if not picks:
+                continue
+            body = f"{picks[0]['title'][:80]} — e mais {max(len(picks) - 1, 0)} notícias dos seus interesses"
+            await send_expo_push_notification(
+                push_tokens=[token],
+                title="🌙 Seu Resumo do Dia chegou!",
+                body=body,
+                data={"type": "daily_summary"},
+            )
+            await db.notifications.insert_one({
+                "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+                "user_id": u["user_id"],
+                "title": "🌙 Seu Resumo do Dia chegou!",
+                "body": body,
+                "data": {"type": "daily_summary"},
+                "read": False,
+                "created_at": datetime.now(timezone.utc),
+            })
+            sent += 1
+        logger.info(f"🌙 Resumo do dia enviado para {sent} usuários")
+    except Exception as e:
+        logger.error(f"send_daily_summary: {str(e)}")
+
 async def notify_urgent_news(news_item: dict):
     """Send high-priority push notification for urgent/breaking news via breaking-news channel"""
     try:
@@ -4154,6 +4245,9 @@ async def notify_urgent_news(news_item: dict):
             return
         now = datetime.now(timezone.utc)
         cfg = await db.app_config.find_one({"config_type": "last_urgent_push"}) or {}
+        # DEDUPE: nunca envia push duas vezes para a mesma matéria
+        if cfg.get("news_id") and cfg.get("news_id") == news_item.get("news_id"):
+            return
         last = cfg.get("at")
         if last:
             if last.tzinfo is None:
@@ -4163,7 +4257,7 @@ async def notify_urgent_news(news_item: dict):
                 return
         await db.app_config.update_one(
             {"config_type": "last_urgent_push"},
-            {"$set": {"at": now}},
+            {"$set": {"at": now, "news_id": news_item.get("news_id")}},
             upsert=True
         )
         
@@ -4174,6 +4268,10 @@ async def notify_urgent_news(news_item: dict):
             if urgency_score >= 60 or not user_interests or news_category in user_interests or news_category == "geral":
                 target_users.append(user)
         
+        push_tokens = [u["push_token"] for u in target_users if u.get("push_token")]
+        
+        # Limite diário de 5 pushes por usuário
+        target_users = await allow_push_for_users(target_users)
         push_tokens = [u["push_token"] for u in target_users if u.get("push_token")]
         
         if push_tokens:
@@ -4471,8 +4569,8 @@ async def clean_news_texts():
     """Corrige erros de escrita em notícias antigas: entities HTML (&quot; &amp;), tags e espaços duplicados"""
     docs = await db.news.find(
         {"$or": [
-            {"title": {"$regex": "&quot;|&amp;|&#|&gt;|&lt;|&nbsp;|<[a-zA-Z]"}},
-            {"summary": {"$regex": "&quot;|&amp;|&#|&gt;|&lt;|&nbsp;|<[a-zA-Z]|O post "}},
+            {"title": {"$regex": "&quot;|&amp;|&#|&gt;|&lt;|&nbsp;|<[a-zA-Z]|[a-z-]+=\"|wp-content"}},
+            {"summary": {"$regex": "&quot;|&amp;|&#|&gt;|&lt;|&nbsp;|<[a-zA-Z]|O post |[a-z-]+=\"|wp-content|https?://\\S+\\.(jpg|jpeg|png|webp)"}},
         ]},
         {"title": 1, "summary": 1}
     ).to_list(length=3000)
@@ -4491,6 +4589,73 @@ async def clean_news_texts():
         result = await db.news.bulk_write(ops, ordered=False)
         fixed = result.modified_count
     return {"status": "success", "fixed": fixed}
+
+@api_router.get("/daily-summary")
+async def get_daily_summary_route(user: User = Depends(get_current_user)):
+    """Resumo do Dia: as 2 notícias mais relevantes (24h) de cada interesse do usuário"""
+    interests = (getattr(user, "interests", None) or [])[:8]
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    try:
+        from services.classifier import CATEGORIES_15
+    except ImportError:
+        from classifier import CATEGORIES_15
+    names = {c["id"]: c["name"] for c in CATEGORIES_15}
+    topics = []
+    for cat in interests:
+        items = await db.news.find(
+            {"published_at": {"$gte": since}, "category": cat, "title": {"$ne": None}},
+            {"_id": 0, "news_id": 1, "title": 1, "summary": 1, "ai_summary": 1,
+             "image_url": 1, "source_name": 1, "category": 1, "published_at": 1, "source_url": 1},
+            sort=[("is_trending", -1), ("credibility_score", -1), ("published_at", -1)]
+        ).to_list(length=2)
+        if items:
+            topics.append({"id": cat, "name": names.get(cat, cat), "items": items})
+    return {"topics": topics}
+
+@api_router.get("/admin/proofread-recent")
+async def proofread_recent(limit: int = 60):
+    """Revisa ortografia (LLM) das notícias mais recentes já publicadas. Rode várias vezes se necessário."""
+    try:
+        from services.ai_service import proofread_news
+    except ImportError:
+        from ai_service import proofread_news
+    docs = await db.news.find(
+        {"proofread": {"$ne": True}},
+        {"news_id": 1, "title": 1, "summary": 1},
+        sort=[("published_at", -1)]
+    ).to_list(length=min(limit, 150))
+    fixed = 0
+    for d in docs:
+        update = {"proofread": True}
+        result = await proofread_news(d.get("title", ""), d.get("summary", ""))
+        if result and (result["title"] != d.get("title") or result["summary"] != d.get("summary")):
+            update["title"] = result["title"]
+            update["summary"] = result["summary"]
+            fixed += 1
+        await db.news.update_one({"_id": d["_id"]}, {"$set": update})
+    return {"status": "success", "checked": len(docs), "corrected": fixed}
+
+@api_router.get("/admin/fix-images")
+async def fix_broken_images(days: int = 7):
+    """Valida imagens das notícias recentes; troca quebradas pela imagem padrão da categoria"""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    docs = await db.news.find(
+        {"published_at": {"$gte": since}},
+        {"news_id": 1, "image_url": 1, "category": 1, "title": 1}
+    ).to_list(length=3000)
+    sem = asyncio.Semaphore(10)
+    fixed = 0
+    async def check(d):
+        nonlocal fixed
+        async with sem:
+            url = d.get("image_url") or ""
+            ok = bool(url) and await validate_image_url(url)
+            if not ok:
+                new_url = get_category_fallback_image(d.get("category", "geral"), d.get("title", ""))
+                await db.news.update_one({"_id": d["_id"]}, {"$set": {"image_url": new_url}})
+                fixed += 1
+    await asyncio.gather(*[check(d) for d in docs])
+    return {"status": "success", "checked": len(docs), "fixed": fixed}
 
 @api_router.get("/admin/push-status")
 async def push_status():
@@ -4739,30 +4904,21 @@ def setup_scheduler():
         replace_existing=True
     )
     
-    # Job 4: Morning digest at 10am UTC (7am Brazil)
+    # Job 4: Morning digest at 9am UTC (6am Brazil)
     scheduler.add_job(
         send_daily_digest,
-        CronTrigger(hour=10, minute=0),
+        CronTrigger(hour=9, minute=0),
         id="daily_digest",
-        name="Morning News Digest (7am Brazil)",
+        name="Morning News Digest (6am Brazil)",
         replace_existing=True
     )
     
-    # Job 4b: Lunch digest at 15pm UTC (12pm Brazil)
+    # Job 5: Personalized daily summary at 22pm UTC (7pm Brazil)
     scheduler.add_job(
-        send_daily_digest,
-        CronTrigger(hour=15, minute=0),
-        id="lunch_digest",
-        name="Lunch News Digest (12pm Brazil)",
-        replace_existing=True
-    )
-    
-    # Job 5: Evening digest at 22pm UTC (7pm Brazil)
-    scheduler.add_job(
-        send_daily_digest,
+        send_daily_summary,
         CronTrigger(hour=22, minute=0),
         id="evening_digest",
-        name="Evening News Digest (7pm Brazil)",
+        name="Daily Summary per user (7pm Brazil)",
         replace_existing=True
     )
     
