@@ -2,8 +2,16 @@
 import re
 import json
 import uuid
+import asyncio
 from typing import Optional
 from config import EMERGENT_LLM_KEY, logger
+
+
+async def _send_llm(chat, message):
+    """Executa a chamada LLM em uma thread separada.
+    O SDK usa litellm.completion (SÍNCRONO) por baixo, o que congelaria o event loop
+    do FastAPI — durante a ingestão isso deixava o servidor sem responder por minutos."""
+    return await asyncio.to_thread(lambda: asyncio.run(chat.send_message(message)))
 
 
 async def analyze_credibility(title: str, summary: str, source_name: str) -> Optional[dict]:
@@ -46,7 +54,7 @@ FONTE: {source_name or 'Desconhecida'}
 Responda apenas o JSON com score e reason."""
 
         user_message = UserMessage(text=prompt)
-        response = await chat.send_message(user_message)
+        response = await _send_llm(chat, user_message)
         
         try:
             json_match = re.search(r'\{[^}]+\}', response)
@@ -113,7 +121,7 @@ Responda APENAS com o id da categoria (ex: futebol). Nada mais."""
         ).with_model("openai", "gpt-4.1-mini")
 
         prompt = f"TÍTULO: {title}\nRESUMO: {(summary or '')[:300]}\nFONTE: {source_name or 'desconhecida'}"
-        response = await chat.send_message(UserMessage(text=prompt))
+        response = await _send_llm(chat, UserMessage(text=prompt))
         return _extract_category(response)
     except Exception as e:
         logger.error(f"LLM classify error: {str(e)}")
@@ -142,7 +150,7 @@ Exemplo: ["futebol", "economia", "seguranca"]"""
         lines = []
         for i, it in enumerate(items, 1):
             lines.append(f"{i}. {it.get('title', '')} — {(it.get('summary') or '')[:150]}")
-        response = await chat.send_message(UserMessage(text="\n".join(lines)))
+        response = await _send_llm(chat, UserMessage(text="\n".join(lines)))
 
         match = re.search(r'\[.*\]', response, re.DOTALL)
         if not match:
@@ -194,7 +202,7 @@ CATEGORIA: {category}
 CONTEÚDO: {truncated}"""
 
         user_message = UserMessage(text=prompt)
-        response = await chat.send_message(user_message)
+        response = await _send_llm(chat, user_message)
         
         if response and len(response.strip()) > 20:
             summary = response.strip()
@@ -230,7 +238,7 @@ async def proofread_news(title: str, summary: str = "") -> Optional[dict]:
             ),
         ).with_model("openai", "gpt-4.1-mini")
         prompt = _json.dumps({"title": title[:300], "summary": (summary or "")[:500]}, ensure_ascii=False)
-        response = await chat.send_message(UserMessage(text=prompt))
+        response = await _send_llm(chat, UserMessage(text=prompt))
         text = (response or "").strip()
         if text.startswith("```"):
             text = text.strip("`").replace("json", "", 1).strip()
@@ -270,7 +278,7 @@ async def generate_long_summary(title: str, short_summary: str, article_text: st
         material = f"TÍTULO: {title}\n\nRESUMO: {short_summary or ''}"
         if article_text:
             material += f"\n\nTEXTO DA MATÉRIA ORIGINAL:\n{article_text[:4000]}"
-        response = await chat.send_message(UserMessage(text=material))
+        response = await _send_llm(chat, UserMessage(text=material))
         text = (response or "").strip()
         if text.startswith("```"):
             text = text.strip("`").strip()
